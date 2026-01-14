@@ -1,0 +1,23 @@
+lobby:
+  world: "lobby"
+  # x, y, z, yaw, pitch
+  spawn: "0, 65, 0, 0, 0"
+
+# Игроков в одной команде. Всего команд в режиме TheWalls сейчас всегда 4.
+players-per-team: 4
+
+match:
+  countdown-seconds: 10
+  duration-seconds: 900
+
+# Список арен. template-world — мир-шаблон (будет клонироваться в новый мир на матч).
+# team-spawns — точки спавна команд внутри арены.
+arenas:
+  - id: "tw_map_1"
+    template-world: "tw_map_1"
+    pool-size: 1
+    team-spawns:
+      ORANGE: "5, 70, 90, 180, 0"
+      BLUE: "-90, 70, 5, 90, 0"
+      PINK: "-5, 70, -90, 0, 0"
+      GREEN: "90, 70, -5, -90, 0"

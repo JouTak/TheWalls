@@ -18,11 +18,18 @@ repositories {
     maven("https://oss.sonatype.org/content/groups/public/") {
         name = "sonatype"
     }
+
+    maven("https://repo.onarandombox.com/content/groups/public/")
+    maven("https://maven.joutak.ru/snapshots")
 }
 
 dependencies {
     compileOnly(libs.kotlin)
     compileOnly(libs.paper)
+
+    compileOnly("com.onarandombox.multiversecore:multiverse-core:4.3.14")
+    implementation("ru.joutak:minigamesapi:2.6.0-73")
+    implementation("org.mariadb.jdbc:mariadb-java-client:3.5.7")
 }
 
 kotlin {
@@ -47,7 +54,8 @@ tasks.processResources {
             .get()
             .substringBefore("-")
 
-    val commitHash = project.property("commitHash") as String?
+    // commitHash is optional (CI may pass it via -PcommitHash=...)
+    val commitHash = (findProperty("commitHash") as String?)?.takeIf { it.isNotBlank() }
 
     val website =
         if (repo.isBlank()) {

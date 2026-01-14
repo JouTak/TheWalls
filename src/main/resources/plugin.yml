@@ -1,12 +1,12 @@
 name: ${NAME}
 version: ${VERSION}
 api-version: ${MINECRAFT_VERSION}
-main: ru.joutak.template.EmptyPlugin
-description: 'A template plugin'
+main: ru.joutak.thewalls.TheWallsPlugin
+description: 'thewalls'
 authors: ['EnderDissa', 'Stunnerer', 's4dnex']
 contributors: ['technosimp']
 website: ${WEBSITE}
 
-depend: []
+depend: [Multiverse-Core]
 libraries:
   - 'org.jetbrains.kotlin:kotlin-stdlib:${KOTLIN_VERSION}'
