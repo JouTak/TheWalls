@@ -14,6 +14,31 @@ match:
   total-seconds: 900
   # Time until walls are opened (phase BUILD -> OPEN).
   build-seconds: 600
+  walls:
+    # How many wall blocks to process per server tick when opening walls.
+    # Higher values -> faster opening, but more load per tick.
+    blocks-per-tick: 8000
+    # Материалы, которые НЕ нужно удалять из регионов стен при их открытии.
+    # Пример: если регион стен захватывает и декоративные элементы.
+    keep-blocks: []
+
+  rules:
+    # Разрешить урон игрокам во время BUILD.
+    # По умолчанию выключено: пока стены закрыты, PvP обычно не нужно.
+    pvp-in-build: false
+    # Разрешить урон по своим (friendly-fire).
+    friendly-fire: false
+    # Блоки, которые нельзя ломать/ставить в матче.
+    # (обычно это технические блоки карты)
+    protected-blocks:
+      - "BEDROCK"
+      - "BARRIER"
+      - "STRUCTURE_BLOCK"
+      - "STRUCTURE_VOID"
+      - "JIGSAW"
+      - "COMMAND_BLOCK"
+      - "CHAIN_COMMAND_BLOCK"
+      - "REPEATING_COMMAND_BLOCK"
 
 # Список арен. template-world — мир-шаблон (будет клонироваться в новый мир на матч).
 # team-spawns — точки спавна команд внутри арены.
@@ -21,11 +46,18 @@ arenas:
   - id: "tw_map_1"
     template-world: "tw_map_1"
     pool-size: 1
+    # (Опционально) Центр — пока используется только как информация для будущих фич.
     center:
       point: "0, 70, 0"
-      radius: 12
+      radius: 0
     team-spawns:
       ORANGE: "5, 70, 90, 180, 0"
       BLUE: "-90, 70, 5, 90, 0"
       PINK: "-5, 70, -90, 0, 0"
       GREEN: "90, 70, -5, -90, 0"
+    # Wall regions:
+    # - во время BUILD игроки не могут пересекать эти регионы (даже если там воздух или блоки можно сломать)
+    # - при переходе BUILD -> OPEN блоки внутри регионов удаляются (AIR), кроме keep-blocks.
+    # Format: "x1, y1, z1, x2, y2, z2" (block coords). You can add multiple regions.
+    walls:
+      # - "-15, 64, -2, 15, 90, 2"

@@ -38,7 +38,9 @@ object TheWallsGameManager {
             worldName = arena.worldName,
             teamSpawns = arenaCfg?.teamSpawns ?: emptyMap(),
             centerPoint = arenaCfg?.centerPoint,
-            centerRadius = arenaCfg?.centerRadius
+            centerRadius = arenaCfg?.centerRadius,
+            wallRegions = arenaCfg?.walls ?: emptyList(),
+            wallBreakBlocksPerTick = TheWallsSettings.wallBreakBlocksPerTick
         )
 
         gamesByWorld[arena.worldName] = game

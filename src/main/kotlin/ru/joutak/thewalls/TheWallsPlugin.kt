@@ -8,9 +8,9 @@ import ru.joutak.minigames.managers.MatchmakingManager
 import ru.joutak.thewalls.arenas.TheWallsArenaManager
 import ru.joutak.thewalls.config.TheWallsSettings
 import ru.joutak.thewalls.game.TheWallsGameManager
-import ru.joutak.thewalls.listener.CenterRestrictionListener
 import ru.joutak.thewalls.listener.GameListener
 import ru.joutak.thewalls.listener.PlayerSessionListener
+import ru.joutak.thewalls.listener.WallBoundaryListener
 
 class TheWallsPlugin : JavaPlugin() {
     companion object {
@@ -35,7 +35,7 @@ class TheWallsPlugin : JavaPlugin() {
 
         server.pluginManager.registerEvents(PlayerSessionListener, this)
         server.pluginManager.registerEvents(GameListener, this)
-        server.pluginManager.registerEvents(CenterRestrictionListener, this)
+        server.pluginManager.registerEvents(WallBoundaryListener, this)
 
         pollTaskId = Bukkit.getScheduler().runTaskTimer(this, Runnable {
             val ready: GameInstance = MatchmakingManager.pollReady() ?: return@Runnable
