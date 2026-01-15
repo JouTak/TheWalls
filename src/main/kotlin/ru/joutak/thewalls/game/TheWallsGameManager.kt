@@ -36,7 +36,9 @@ object TheWallsGameManager {
             instance = instance,
             arenaId = arenaId,
             worldName = arena.worldName,
-            teamSpawns = arenaCfg?.teamSpawns ?: emptyMap()
+            teamSpawns = arenaCfg?.teamSpawns ?: emptyMap(),
+            centerPoint = arenaCfg?.centerPoint,
+            centerRadius = arenaCfg?.centerRadius
         )
 
         gamesByWorld[arena.worldName] = game

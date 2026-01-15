@@ -8,7 +8,12 @@ players-per-team: 4
 
 match:
   countdown-seconds: 10
+  # Backward-compatible: duration-seconds is treated as total-seconds.
   duration-seconds: 900
+  # Total match time.
+  total-seconds: 900
+  # Time until walls are opened (phase BUILD -> OPEN).
+  build-seconds: 600
 
 # Список арен. template-world — мир-шаблон (будет клонироваться в новый мир на матч).
 # team-spawns — точки спавна команд внутри арены.
@@ -16,6 +21,9 @@ arenas:
   - id: "tw_map_1"
     template-world: "tw_map_1"
     pool-size: 1
+    center:
+      point: "0, 70, 0"
+      radius: 12
     team-spawns:
       ORANGE: "5, 70, 90, 180, 0"
       BLUE: "-90, 70, 5, 90, 0"

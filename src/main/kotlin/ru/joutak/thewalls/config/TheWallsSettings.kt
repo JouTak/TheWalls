@@ -25,7 +25,9 @@ object TheWallsSettings {
         val id: String,
         val templateWorld: String,
         val poolSize: Int,
-        val teamSpawns: Map<TheWallsTeam, SpawnPoint>
+        val teamSpawns: Map<TheWallsTeam, SpawnPoint>,
+        val centerPoint: SpawnPoint,
+        val centerRadius: Double
     )
 
     lateinit var lobbyWorld: String
@@ -37,7 +39,10 @@ object TheWallsSettings {
         private set
     var countdownSeconds: Int = 10
         private set
-    var matchDurationSeconds: Int = 900
+    var matchTotalSeconds: Int = 900
+        private set
+
+    var matchBuildSeconds: Int = 600
         private set
 
     private val arenas = mutableListOf<ArenaConfig>()
@@ -53,6 +58,8 @@ object TheWallsSettings {
         cfg.addDefault("players-per-team", 4)
         cfg.addDefault("match.countdown-seconds", 10)
         cfg.addDefault("match.duration-seconds", 900)
+        cfg.addDefault("match.total-seconds", 900)
+        cfg.addDefault("match.build-seconds", 600)
         cfg.options().copyDefaults(true)
         plugin.saveConfig()
 
@@ -61,7 +68,18 @@ object TheWallsSettings {
 
         playersPerTeam = cfg.getInt("players-per-team", 4).coerceAtLeast(1)
         countdownSeconds = cfg.getInt("match.countdown-seconds", 10).coerceAtLeast(0)
-        matchDurationSeconds = cfg.getInt("match.duration-seconds", 900).coerceAtLeast(10)
+
+        // Backward compatibility: duration-seconds is treated as total-seconds if total-seconds is absent.
+        val total = if (cfg.contains("match.total-seconds")) {
+            cfg.getInt("match.total-seconds", 900)
+        } else {
+            cfg.getInt("match.duration-seconds", 900)
+        }
+        matchTotalSeconds = total.coerceAtLeast(10)
+
+        val defaultBuild = minOf(600, maxOf(0, matchTotalSeconds - 60))
+        matchBuildSeconds = cfg.getInt("match.build-seconds", defaultBuild)
+            .coerceIn(0, maxOf(0, matchTotalSeconds - 1))
 
         arenas.clear()
         val arenasList = cfg.getList("arenas") ?: emptyList<Any>()
@@ -80,11 +98,17 @@ object TheWallsSettings {
                 }
             }
 
+            val centerSec = sec["center"] as? Map<*, *>
+            val centerPoint = parseSpawn(centerSec?.get("point")?.toString() ?: "0, 65, 0")
+            val centerRadius = (centerSec?.get("radius") as? Number)?.toDouble()?.coerceAtLeast(0.0) ?: 0.0
+
             arenas += ArenaConfig(
                 id = id,
                 templateWorld = templateWorld,
                 poolSize = poolSize,
-                teamSpawns = teamSpawns
+                teamSpawns = teamSpawns,
+                centerPoint = centerPoint,
+                centerRadius = centerRadius
             )
         }
     }
