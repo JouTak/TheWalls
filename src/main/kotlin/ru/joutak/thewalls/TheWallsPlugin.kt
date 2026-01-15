@@ -5,6 +5,7 @@ import org.bukkit.plugin.java.JavaPlugin
 import ru.joutak.minigames.MiniGamesCore
 import ru.joutak.minigames.domain.GameInstance
 import ru.joutak.minigames.managers.MatchmakingManager
+import ru.joutak.thewalls.arenas.TheWallsArenaManager
 import ru.joutak.thewalls.config.TheWallsSettings
 import ru.joutak.thewalls.game.TheWallsGameManager
 import ru.joutak.thewalls.listener.GameListener
@@ -28,15 +29,8 @@ class TheWallsPlugin : JavaPlugin() {
         // MiniGamesAPI infrastructure (queue, lobby items, /ready, /teamselect, etc.)
         MiniGamesCore.initialize(this)
 
-        // Worlds cleanup (in case server crashed / was restarted mid-match)
-        TheWallsGameManager.cleanupOrphanedWorlds()
-
-        val instances = TheWallsSettings.toInstanceConfigs()
-        if (instances.isEmpty()) {
-            logger.warning("[TheWalls] arenas list is empty. Matches will not start until you configure arenas in config.yml")
-        } else {
-            MatchmakingManager.loadInstances(instances)
-        }
+        TheWallsArenaManager.init()
+        TheWallsArenaManager.registerArenasToApi()
 
         server.pluginManager.registerEvents(PlayerSessionListener, this)
         server.pluginManager.registerEvents(GameListener, this)
@@ -52,6 +46,7 @@ class TheWallsPlugin : JavaPlugin() {
     override fun onDisable() {
         pollTaskId?.let { Bukkit.getScheduler().cancelTask(it) }
         pollTaskId = null
+
         TheWallsGameManager.shutdownAllGames()
     }
 }

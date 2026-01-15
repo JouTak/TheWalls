@@ -15,6 +15,7 @@ import ru.joutak.minigames.domain.GameInstance
 import ru.joutak.minigames.managers.MatchmakingManager
 import ru.joutak.thewalls.TheWallsPlugin
 import ru.joutak.thewalls.config.TheWallsSettings
+import ru.joutak.thewalls.lobby.LobbyService
 import java.time.Duration
 import java.util.UUID
 import kotlin.math.max
@@ -87,12 +88,17 @@ class TheWallsGame(
 
     fun shutdown(reason: String) {
         if (state == GameState.CLEANUP) return
-        endGame(winnerTeam = null, reason = reason)
+        endGame(winnerTeam = null, reason = reason, immediate = false)
+    }
+
+    fun shutdownImmediately(reason: String) {
+        if (state == GameState.CLEANUP) return
+        endGame(winnerTeam = null, reason = reason, immediate = true)
     }
 
     fun endByTimeLimit() {
         val winner = calculateWinnerByKills()
-        endGame(winnerTeam = winner, reason = "time")
+        endGame(winnerTeam = winner, reason = "time", immediate = false)
     }
 
     private fun preparePlayersForMatch() {
@@ -138,7 +144,7 @@ class TheWallsGame(
 
             val players = teamByPlayer.keys.mapNotNull { Bukkit.getPlayer(it) }
             if (players.isEmpty()) {
-                endGame(winnerTeam = null, reason = "no_players")
+                endGame(winnerTeam = null, reason = "no_players", immediate = true)
                 return@Runnable
             }
 
@@ -190,7 +196,7 @@ class TheWallsGame(
 
             val players = teamByPlayer.keys.mapNotNull { Bukkit.getPlayer(it) }
             if (players.isEmpty()) {
-                endGame(winnerTeam = null, reason = "no_players")
+                endGame(winnerTeam = null, reason = "no_players", immediate = true)
                 return@Runnable
             }
 
@@ -222,7 +228,7 @@ class TheWallsGame(
         return bestTeam
     }
 
-    private fun endGame(winnerTeam: TheWallsTeam?, reason: String) {
+    private fun endGame(winnerTeam: TheWallsTeam?, reason: String, immediate: Boolean) {
         if (state == GameState.ENDING || state == GameState.CLEANUP) return
 
         state = GameState.ENDING
@@ -231,43 +237,53 @@ class TheWallsGame(
         bossBar?.removeAll()
         bossBar = null
 
-        val winnerText = if (winnerTeam == null) {
-            Component.text("Победитель не определён", NamedTextColor.GRAY)
-        } else {
-            Component.text("Победили: ", NamedTextColor.YELLOW)
-                .append(Component.text(winnerTeam.displayName, winnerTeam.adventureColor()))
+        val shouldAnnounce = reason != "shutdown" && reason != "no_players"
+        if (shouldAnnounce) {
+            val winnerText = if (winnerTeam == null) {
+                Component.text("Победитель не определён", NamedTextColor.GRAY)
+            } else {
+                Component.text("Победили: ", NamedTextColor.YELLOW)
+                    .append(Component.text(winnerTeam.displayName, winnerTeam.adventureColor()))
+            }
+
+            val arenaText = Component.text("[TheWalls] ", NamedTextColor.YELLOW)
+                .append(Component.text("Арена: $arenaId. ", NamedTextColor.GRAY))
+                .append(winnerText)
+
+            // Announce globally (like other modes results).
+            Bukkit.getOnlinePlayers().forEach { it.sendMessage(arenaText) }
         }
 
-        val arenaText = Component.text("[TheWalls] ", NamedTextColor.YELLOW)
-            .append(Component.text("Арена: $arenaId. ", NamedTextColor.GRAY))
-            .append(winnerText)
-
-        // Announce globally (like other modes results).
-        Bukkit.getOnlinePlayers().forEach { it.sendMessage(arenaText) }
+        if (immediate) {
+            cleanupNow()
+            return
+        }
 
         val taskId = Bukkit.getScheduler().runTaskLater(TheWallsPlugin.instance, Runnable {
-            cleanup()
+            cleanupNow()
         }, 20L * 5L).taskId
         tasks["cleanup"] = taskId
     }
 
-    private fun cleanup() {
+    private fun cleanupNow() {
         if (state == GameState.CLEANUP) return
         state = GameState.CLEANUP
 
-        // Teleport players and detach from MiniGamesAPI instance
         val participants = teamByPlayer.keys.toList()
         for (uuid in participants) {
             val player = Bukkit.getPlayer(uuid)
             if (player != null) {
-                TheWallsGameManager.sendToLobby(player)
-                MatchmakingManager.removePlayer(player)
+                LobbyService.sendToLobby(player)
+                try {
+                    MatchmakingManager.removePlayer(player)
+                } catch (_: Exception) {
+                }
             } else {
                 instance.removeActivePlayer(uuid)
             }
         }
 
-        TheWallsGameManager.deleteGame(worldName, this)
+        TheWallsGameManager.onGameEnd(this)
     }
 
     private fun formatSeconds(total: Int): String {

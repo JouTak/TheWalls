@@ -7,6 +7,7 @@ import org.bukkit.event.player.PlayerKickEvent
 import org.bukkit.event.player.PlayerQuitEvent
 import ru.joutak.minigames.managers.MatchmakingManager
 import ru.joutak.thewalls.game.TheWallsGameManager
+import ru.joutak.thewalls.lobby.LobbyService
 
 object PlayerSessionListener : Listener {
 
@@ -19,7 +20,7 @@ object PlayerSessionListener : Listener {
             MatchmakingManager.removePlayer(player)
         }
 
-        TheWallsGameManager.sendToLobby(player)
+        LobbyService.sendToLobby(player)
     }
 
     @EventHandler
