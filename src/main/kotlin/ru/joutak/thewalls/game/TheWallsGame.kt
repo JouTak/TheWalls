@@ -469,6 +469,8 @@ class TheWallsGame(
 
     private fun cleanupNow() {
         if (state == GameState.CLEANUP) return
+        tasks.remove("cleanup")
+        cancelAllTasks()
         state = GameState.CLEANUP
 
         val participants = teamByPlayer.keys.toList()

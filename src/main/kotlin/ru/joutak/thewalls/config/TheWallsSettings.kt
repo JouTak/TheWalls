@@ -175,9 +175,14 @@ object TheWallsSettings {
 
         arenas.clear()
         val arenasList = cfg.getList("arenas") ?: emptyList<Any>()
+        val seenArenaIds = HashSet<String>()
         for (raw in arenasList) {
             val sec = raw as? Map<*, *> ?: continue
             val id = sec["id"]?.toString()?.takeIf { it.isNotBlank() } ?: continue
+            if (!seenArenaIds.add(id)) {
+                plugin.logger.warning("[TheWalls] Duplicate arena id '$id' in config.yml (skipping duplicate)")
+                continue
+            }
             val templateWorld = sec["template-world"]?.toString()?.takeIf { it.isNotBlank() } ?: id
             val poolSize = (sec["pool-size"] as? Number)?.toInt()?.coerceAtLeast(1) ?: 1
 
@@ -206,6 +211,32 @@ object TheWallsSettings {
                 centerRadius = centerRadius,
                 walls = walls
             )
+        }
+
+        if (arenas.isEmpty()) {
+            plugin.logger.warning("[TheWalls] No arenas configured. Add 'arenas:' section to config.yml")
+            return
+        }
+
+        for (arena in arenas) {
+            val missingSpawns = TheWallsTeam.entries.filter { it !in arena.teamSpawns }
+            if (missingSpawns.isNotEmpty()) {
+                plugin.logger.warning(
+                    "[TheWalls] Arena '${arena.id}' has missing team spawns: ${missingSpawns.joinToString { it.name }}"
+                )
+            }
+
+            if (matchBuildSeconds > 0 && arena.walls.isEmpty()) {
+                plugin.logger.warning(
+                    "[TheWalls] Arena '${arena.id}' has no walls configured. Build phase restrictions will not work"
+                )
+            }
+
+            if (matchBuildSeconds <= 0 && arena.centerRadius > 0.0) {
+                plugin.logger.warning(
+                    "[TheWalls] Arena '${arena.id}' has center.radius > 0 but match.build-seconds=0. Center restriction will never apply"
+                )
+            }
         }
     }
 
