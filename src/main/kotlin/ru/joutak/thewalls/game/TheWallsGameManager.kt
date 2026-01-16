@@ -17,6 +17,8 @@ object TheWallsGameManager {
 
     fun getGame(playerId: UUID): TheWallsGame? = playerGame[playerId]
 
+    fun getGameByWorld(worldName: String): TheWallsGame? = gamesByWorld[worldName]
+
     fun createGame(instance: GameInstance) {
         val arenaId = (instance.config.meta["arenaId"] as? String) ?: instance.config.id
         val arenaCfg = TheWallsSettings.arenasById[arenaId]
@@ -40,7 +42,8 @@ object TheWallsGameManager {
             centerPoint = arenaCfg?.centerPoint,
             centerRadius = arenaCfg?.centerRadius,
             wallRegions = arenaCfg?.walls ?: emptyList(),
-            wallBreakBlocksPerTick = TheWallsSettings.wallBreakBlocksPerTick
+            wallBreakBlocksPerTick = TheWallsSettings.wallBreakBlocksPerTick,
+            guardianSpawns = arenaCfg?.guardianSpawns ?: emptyMap()
         )
 
         gamesByWorld[arena.worldName] = game

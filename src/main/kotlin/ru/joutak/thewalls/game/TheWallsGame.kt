@@ -8,6 +8,11 @@ import org.bukkit.GameMode
 import org.bukkit.Location
 import org.bukkit.Material
 import org.bukkit.Sound
+import org.bukkit.ChatColor
+import org.bukkit.entity.Entity
+import org.bukkit.entity.Illusioner
+import org.bukkit.persistence.PersistentDataType
+import ru.joutak.thewalls.TheWallsKeys
 import org.bukkit.attribute.Attribute
 import org.bukkit.boss.BarColor
 import org.bukkit.boss.BarStyle
@@ -30,6 +35,7 @@ class TheWallsGame(
     private val centerPoint: TheWallsSettings.SpawnPoint?,
     private val centerRadius: Double?,
     private val wallRegions: List<TheWallsSettings.CuboidRegion>,
+    private val guardianSpawns: Map<TheWallsTeam, TheWallsSettings.SpawnPoint>,
     private val wallBreakBlocksPerTick: Int
 ) {
     @Volatile
@@ -67,6 +73,9 @@ class TheWallsGame(
     private var wallBreakTotalBlocks: Long = 0L
     private var wallBreakDoneBlocks: Long = 0L
     private var wallBreakLastInfoMs: Long = 0L
+
+    private val guardianEntityIds = arrayOfNulls<UUID>(TheWallsTeam.entries.size)
+    private val guardianLivesLeft = IntArray(TheWallsTeam.entries.size) { TheWallsSettings.guardianLives }
 
     fun start() {
         if (state != GameState.WAITING) return
@@ -356,6 +365,10 @@ class TheWallsGame(
             teamByPlayer.keys.mapNotNull { Bukkit.getPlayer(it) }.forEach { sb.addPlayer(it) }
         }
 
+        if (TheWallsSettings.guardiansEnabled) {
+            spawnAllGuardians()
+        }
+
         if (startOpened) {
             phase = TheWallsPhase.OPEN
             startWallBreakTask()
@@ -431,6 +444,8 @@ class TheWallsGame(
         state = GameState.ENDING
         cancelAllTasks()
 
+        despawnAllGuardians()
+
         bossBar?.removeAll()
         bossBar = null
 
@@ -487,6 +502,8 @@ class TheWallsGame(
                 instance.removeActivePlayer(uuid)
             }
         }
+
+        despawnAllGuardians()
 
         TheWallsGameManager.onGameEnd(this)
     }
@@ -652,6 +669,110 @@ class TheWallsGame(
             }
 
             return null
+        }
+    }
+
+
+    fun getGuardianTeam(entity: Entity): TheWallsTeam? {
+        val raw = entity.persistentDataContainer.get(TheWallsKeys.guardianTeamKey, PersistentDataType.STRING) ?: return null
+        return try {
+            TheWallsTeam.valueOf(raw)
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    fun getGuardianLives(team: TheWallsTeam): Int = guardianLivesLeft.getOrElse(team.index) { 0 }
+
+    private fun spawnAllGuardians() {
+        for (team in TheWallsTeam.entries) {
+            if (guardianLivesLeft.getOrElse(team.index) { 0 } <= 0) continue
+            spawnGuardian(team)
+        }
+    }
+
+    private fun spawnGuardian(team: TheWallsTeam) {
+        val w = Bukkit.getWorld(worldName) ?: return
+        val sp = guardianSpawns[team] ?: teamSpawns[team] ?: return
+        val loc = sp.toLocation(worldName)
+
+        // Cleanup previous entity if exists
+        guardianEntityIds[team.index]?.let { oldId ->
+            try {
+                Bukkit.getEntity(oldId)?.remove()
+            } catch (_: Exception) {
+            }
+        }
+
+        val nameRaw = ChatColor.translateAlternateColorCodes('&', TheWallsSettings.guardianName)
+        val entity = w.spawn(loc, Illusioner::class.java) { e ->
+            e.persistentDataContainer.set(TheWallsKeys.guardianTeamKey, PersistentDataType.STRING, team.name)
+            e.customName = "${team.color}$nameRaw"
+            e.isCustomNameVisible = true
+            e.removeWhenFarAway = false
+            e.isPersistent = true
+            e.canPickupItems = false
+
+            val max = TheWallsSettings.guardianMaxHealth
+            e.getAttribute(Attribute.MAX_HEALTH)?.baseValue = max
+            try {
+                e.health = max
+            } catch (_: Exception) {
+            }
+        }
+
+        guardianEntityIds[team.index] = entity.uniqueId
+    }
+
+    fun handleGuardianKilled(team: TheWallsTeam, killer: Player?) {
+        guardianEntityIds[team.index] = null
+        val left = (guardianLivesLeft.getOrElse(team.index) { 0 } - 1).coerceAtLeast(0)
+        guardianLivesLeft[team.index] = left
+
+        val players = teamByPlayer.keys.mapNotNull { Bukkit.getPlayer(it) }
+        val killerText = if (killer != null) {
+            Component.text(" (убил: ", NamedTextColor.GRAY)
+                .append(Component.text(killer.name, NamedTextColor.WHITE))
+                .append(Component.text(")", NamedTextColor.GRAY))
+        } else {
+            Component.empty()
+        }
+
+        if (left > 0) {
+            val msg = Component.text("Хранитель команды ", NamedTextColor.YELLOW)
+                .append(Component.text(team.displayName, team.adventureColor()))
+                .append(Component.text(" погиб! Осталось жизней: $left", NamedTextColor.GRAY))
+                .append(killerText)
+
+            players.forEach { it.sendMessage(msg) }
+
+            val respawnSeconds = TheWallsSettings.guardianRespawnSeconds
+            val key = "guardian_respawn_${team.name}"
+            cancelTask(key)
+            val taskId = Bukkit.getScheduler().runTaskLater(TheWallsPlugin.instance, Runnable {
+                if (state != GameState.RUNNING) return@Runnable
+                if (guardianLivesLeft.getOrElse(team.index) { 0 } <= 0) return@Runnable
+                spawnGuardian(team)
+            }, (respawnSeconds.coerceAtLeast(0) * 20L)).taskId
+            tasks[key] = taskId
+        } else {
+            val msg = Component.text("Хранитель команды ", NamedTextColor.RED)
+                .append(Component.text(team.displayName, team.adventureColor()))
+                .append(Component.text(" уничтожен!", NamedTextColor.RED))
+                .append(killerText)
+            players.forEach { it.sendMessage(msg) }
+        }
+    }
+
+    private fun despawnAllGuardians() {
+        for (team in TheWallsTeam.entries) {
+            guardianEntityIds[team.index]?.let { id ->
+                try {
+                    Bukkit.getEntity(id)?.remove()
+                } catch (_: Exception) {
+                }
+            }
+            guardianEntityIds[team.index] = null
         }
     }
 

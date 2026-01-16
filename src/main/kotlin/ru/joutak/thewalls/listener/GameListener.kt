@@ -6,6 +6,7 @@ import org.bukkit.event.Listener
 import org.bukkit.event.block.BlockBreakEvent
 import org.bukkit.event.block.BlockPlaceEvent
 import org.bukkit.event.entity.EntityDamageByEntityEvent
+import org.bukkit.event.entity.EntityDeathEvent
 import org.bukkit.event.entity.PlayerDeathEvent
 import org.bukkit.event.player.PlayerRespawnEvent
 import org.bukkit.projectiles.ProjectileSource
@@ -69,14 +70,59 @@ object GameListener : Listener {
             player.sendActionBar(Component.text("Нельзя ломать стены до их разрушения", NamedTextColor.YELLOW))
         }
     }
-
     @EventHandler
     fun onDamage(event: EntityDamageByEntityEvent) {
-        val victim = event.entity as? Player ?: return
-        val game = TheWallsGameManager.getGame(victim.uniqueId) ?: return
+        val entity = event.entity
 
-        if (victim.world.name != game.worldName) return
-        if (game.state != GameState.RUNNING || !game.isParticipant(victim.uniqueId)) {
+        // --- Players vs Players ---
+        val victim = entity as? Player
+        if (victim != null) {
+            val game = TheWallsGameManager.getGame(victim.uniqueId) ?: return
+
+            if (victim.world.name != game.worldName) return
+            if (game.state != GameState.RUNNING || !game.isParticipant(victim.uniqueId)) {
+                event.isCancelled = true
+                return
+            }
+
+            val damagerPlayer = when (val d = event.damager) {
+                is Player -> d
+                else -> {
+                    val projectile = d as? org.bukkit.entity.Projectile ?: return
+                    val shooter: ProjectileSource = projectile.shooter ?: return
+                    shooter as? Player
+                }
+            } ?: return
+
+            if (!game.isParticipant(damagerPlayer.uniqueId)) {
+                event.isCancelled = true
+                return
+            }
+
+            val victimTeam = game.getTeam(victim.uniqueId)
+            val damagerTeam = game.getTeam(damagerPlayer.uniqueId)
+            if (victimTeam != null && damagerTeam != null) {
+                if (!TheWallsSettings.friendlyFireEnabled && victimTeam == damagerTeam) {
+                    event.isCancelled = true
+                    return
+                }
+                if (!TheWallsSettings.pvpInBuildEnabled && game.phase == TheWallsPhase.BUILD) {
+                    event.isCancelled = true
+                    return
+                }
+            }
+
+            if (!event.isCancelled) {
+                game.recordDamager(victim.uniqueId, damagerPlayer.uniqueId)
+            }
+            return
+        }
+
+        // --- Guardians (Illusioner) ---
+        val game = TheWallsGameManager.getGameByWorld(entity.world.name) ?: return
+        val guardianTeam = game.getGuardianTeam(entity) ?: return
+
+        if (game.state != GameState.RUNNING) {
             event.isCancelled = true
             return
         }
@@ -84,33 +130,50 @@ object GameListener : Listener {
         val damagerPlayer = when (val d = event.damager) {
             is Player -> d
             else -> {
-                val projectile = d as? org.bukkit.entity.Projectile ?: return
-                val shooter: ProjectileSource = projectile.shooter ?: return
+                val projectile = d as? org.bukkit.entity.Projectile ?: run {
+                    event.isCancelled = true
+                    return
+                }
+                val shooter: ProjectileSource = projectile.shooter ?: run {
+                    event.isCancelled = true
+                    return
+                }
                 shooter as? Player
             }
-        } ?: return
+        } ?: run {
+            event.isCancelled = true
+            return
+        }
 
         if (!game.isParticipant(damagerPlayer.uniqueId)) {
             event.isCancelled = true
             return
         }
 
-        val victimTeam = game.getTeam(victim.uniqueId)
         val damagerTeam = game.getTeam(damagerPlayer.uniqueId)
-        if (victimTeam != null && damagerTeam != null) {
-            if (!TheWallsSettings.friendlyFireEnabled && victimTeam == damagerTeam) {
-                event.isCancelled = true
-                return
-            }
-            if (!TheWallsSettings.pvpInBuildEnabled && game.phase == TheWallsPhase.BUILD) {
-                event.isCancelled = true
-                return
-            }
+        if (damagerTeam == guardianTeam) {
+            event.isCancelled = true
+            damagerPlayer.sendActionBar(Component.text("Нельзя бить своего хранителя", NamedTextColor.RED))
+            return
         }
 
-        if (!event.isCancelled) {
-            game.recordDamager(victim.uniqueId, damagerPlayer.uniqueId)
+        if (!TheWallsSettings.pvpInBuildEnabled && game.phase == TheWallsPhase.BUILD) {
+            event.isCancelled = true
         }
+    }
+
+    @EventHandler
+    fun onEntityDeath(event: EntityDeathEvent) {
+        val entity = event.entity
+        val game = TheWallsGameManager.getGameByWorld(entity.world.name) ?: return
+        val team = game.getGuardianTeam(entity) ?: return
+
+        // no drops/exp from guardians
+        event.drops.clear()
+        event.droppedExp = 0
+
+        if (game.state != GameState.RUNNING) return
+        game.handleGuardianKilled(team, entity.killer)
     }
 
     @EventHandler

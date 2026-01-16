@@ -56,7 +56,8 @@ object TheWallsSettings {
         val teamSpawns: Map<TheWallsTeam, SpawnPoint>,
         val centerPoint: SpawnPoint,
         val centerRadius: Double,
-        val walls: List<CuboidRegion>
+        val walls: List<CuboidRegion>,
+        val guardianSpawns: Map<TheWallsTeam, SpawnPoint>
     )
 
     lateinit var lobbyWorld: String
@@ -87,6 +88,21 @@ object TheWallsSettings {
         private set
 
     var protectedBlocks: Set<Material> = emptySet()
+        private set
+
+    var guardiansEnabled: Boolean = true
+        private set
+
+    var guardianLives: Int = 3
+        private set
+
+    var guardianRespawnSeconds: Int = 10
+        private set
+
+    var guardianMaxHealth: Double = 40.0
+        private set
+
+    var guardianName: String = "Хранитель"
         private set
 
     private val arenas = mutableListOf<ArenaConfig>()
@@ -122,6 +138,13 @@ object TheWallsSettings {
                 "REPEATING_COMMAND_BLOCK"
             )
         )
+
+        cfg.addDefault("guardians.enabled", true)
+        cfg.addDefault("guardians.lives", 3)
+        cfg.addDefault("guardians.respawn-seconds", 10)
+        cfg.addDefault("guardians.max-health", 40.0)
+        cfg.addDefault("guardians.name", "Хранитель")
+
         cfg.options().copyDefaults(true)
         plugin.saveConfig()
 
@@ -173,6 +196,12 @@ object TheWallsSettings {
         }
         protectedBlocks = protectedSet
 
+        guardiansEnabled = cfg.getBoolean("guardians.enabled", true)
+        guardianLives = cfg.getInt("guardians.lives", 3).coerceIn(1, 100)
+        guardianRespawnSeconds = cfg.getInt("guardians.respawn-seconds", 10).coerceIn(0, 600)
+        guardianMaxHealth = cfg.getDouble("guardians.max-health", 40.0).coerceIn(1.0, 2048.0)
+        guardianName = cfg.getString("guardians.name", "Хранитель") ?: "Хранитель"
+
         arenas.clear()
         val arenasList = cfg.getList("arenas") ?: emptyList<Any>()
         val seenArenaIds = HashSet<String>()
@@ -195,6 +224,15 @@ object TheWallsSettings {
                 }
             }
 
+
+            val guardianRaw = sec["guardian-spawns"] as? Map<*, *> ?: emptyMap<Any, Any>()
+            val guardianSpawns = mutableMapOf<TheWallsTeam, SpawnPoint>()
+            for (team in TheWallsTeam.entries) {
+                val str = guardianRaw[team.name]?.toString()
+                if (str != null) {
+                    guardianSpawns[team] = parseSpawn(str)
+                }
+            }
             val centerSec = sec["center"] as? Map<*, *>
             val centerPoint = parseSpawn(centerSec?.get("point")?.toString() ?: "0, 65, 0")
             val centerRadius = (centerSec?.get("radius") as? Number)?.toDouble()?.coerceAtLeast(0.0) ?: 0.0
@@ -209,7 +247,8 @@ object TheWallsSettings {
                 teamSpawns = teamSpawns,
                 centerPoint = centerPoint,
                 centerRadius = centerRadius,
-                walls = walls
+                walls = walls,
+                guardianSpawns = guardianSpawns
             )
         }
 
@@ -236,6 +275,18 @@ object TheWallsSettings {
                 plugin.logger.warning(
                     "[TheWalls] Arena '${arena.id}' has center.radius > 0 but match.build-seconds=0. Center restriction will never apply"
                 )
+            }
+
+            if (guardiansEnabled) {
+                val missingGuardian = TheWallsTeam.entries.filter { it !in arena.guardianSpawns && it !in arena.teamSpawns }
+                if (missingGuardian.isNotEmpty()) {
+                    plugin.logger.warning("[TheWalls] Arena '${arena.id}' has no guardian spawn (and no team spawn fallback) for: ${missingGuardian.joinToString { it.name }}")
+                } else {
+                    val missingExplicit = TheWallsTeam.entries.filter { it !in arena.guardianSpawns }
+                    if (missingExplicit.isNotEmpty()) {
+                        plugin.logger.warning("[TheWalls] Arena '${arena.id}' has no guardian-spawns for: ${missingExplicit.joinToString { it.name }} (will use team-spawns as fallback)")
+                    }
+                }
             }
         }
     }
