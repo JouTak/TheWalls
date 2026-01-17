@@ -1,6 +1,8 @@
 package ru.joutak.thewalls.listener
 
 import org.bukkit.entity.Player
+import org.bukkit.Bukkit
+import ru.joutak.thewalls.TheWallsPlugin
 import org.bukkit.event.EventHandler
 import org.bukkit.event.Listener
 import org.bukkit.event.block.BlockBreakEvent
@@ -192,5 +194,13 @@ object GameListener : Listener {
 
         val loc = game.getRespawnLocation(player.uniqueId) ?: return
         event.respawnLocation = loc
+
+        // Apply spectator mode if respawn is disabled for this team.
+        game.applyRespawnRules(player)
+
+        // Victory check after respawn state updates.
+        Bukkit.getScheduler().runTaskLater(TheWallsPlugin.instance, Runnable {
+            game.checkForVictory()
+        }, 2L)
     }
 }

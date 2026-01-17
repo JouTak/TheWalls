@@ -77,6 +77,8 @@ class TheWallsGame(
     private val guardianEntityIds = arrayOfNulls<UUID>(TheWallsTeam.entries.size)
     private val guardianLivesLeft = IntArray(TheWallsTeam.entries.size) { TheWallsSettings.guardianLives }
 
+    private val respawnEnabled = BooleanArray(TheWallsTeam.entries.size) { true }
+
     fun start() {
         if (state != GameState.WAITING) return
         state = GameState.COUNTDOWN
@@ -235,6 +237,10 @@ class TheWallsGame(
         centerWarnUntil.remove(uuid)
         wallWarnUntil.remove(uuid)
 
+        if (state == GameState.RUNNING) {
+            checkForVictory()
+        }
+
         // Keep instance participant set correct (player may have quit).
         instance.removeActivePlayer(uuid)
     }
@@ -250,7 +256,7 @@ class TheWallsGame(
     }
 
     fun endByTimeLimit() {
-        val winner = calculateWinnerByKills()
+        val winner = calculateWinnerAtTimeLimit()
         endGame(winnerTeam = winner, reason = "time", immediate = false)
     }
 
@@ -335,6 +341,11 @@ class TheWallsGame(
     private fun beginRunning() {
         if (state != GameState.COUNTDOWN) return
         state = GameState.RUNNING
+
+        val w = Bukkit.getWorld(worldName)
+        if (w != null) {
+            w.difficulty = TheWallsSettings.matchDifficulty
+        }
 
         phase = TheWallsPhase.BUILD
         totalRemainingSeconds = TheWallsSettings.matchTotalSeconds
@@ -423,6 +434,41 @@ class TheWallsGame(
         }, 20L, 20L).taskId
 
         tasks["timer"] = taskId
+    }
+
+
+    private fun calculateWinnerAtTimeLimit(): TheWallsTeam? {
+        val alive = IntArray(TheWallsTeam.entries.size)
+        for ((uuid, team) in teamByPlayer) {
+            val p = Bukkit.getPlayer(uuid) ?: continue
+            if (p.world.name != worldName) continue
+            if (p.gameMode == GameMode.SPECTATOR) continue
+            alive[team.index]++
+        }
+
+        var bestTeam: TheWallsTeam? = null
+        var bestRespawn = -1
+        var bestAlive = -1
+        var bestKills = -1
+
+        for (team in TheWallsTeam.entries) {
+            val aliveCount = alive.getOrElse(team.index) { 0 }
+            if (aliveCount <= 0) continue
+            val respawnScore = if (isRespawnEnabled(team)) 1 else 0
+            val kills = teamKills.getOrElse(team.index) { 0 }
+
+            if (respawnScore > bestRespawn
+                || (respawnScore == bestRespawn && aliveCount > bestAlive)
+                || (respawnScore == bestRespawn && aliveCount == bestAlive && kills > bestKills)
+            ) {
+                bestTeam = team
+                bestRespawn = respawnScore
+                bestAlive = aliveCount
+                bestKills = kills
+            }
+        }
+
+        return bestTeam ?: calculateWinnerByKills()
     }
 
     private fun calculateWinnerByKills(): TheWallsTeam? {
@@ -684,17 +730,74 @@ class TheWallsGame(
 
     fun getGuardianLives(team: TheWallsTeam): Int = guardianLivesLeft.getOrElse(team.index) { 0 }
 
-    private fun spawnAllGuardians() {
-        for (team in TheWallsTeam.entries) {
-            if (guardianLivesLeft.getOrElse(team.index) { 0 } <= 0) continue
-            spawnGuardian(team)
+    fun isRespawnEnabled(team: TheWallsTeam): Boolean = respawnEnabled.getOrElse(team.index) { true }
+
+    fun isRespawnEnabled(playerId: UUID): Boolean {
+        val team = teamByPlayer[playerId] ?: return true
+        return isRespawnEnabled(team)
+    }
+
+    fun applyRespawnRules(player: Player) {
+        val team = teamByPlayer[player.uniqueId] ?: return
+        if (isRespawnEnabled(team)) return
+
+        player.gameMode = GameMode.SPECTATOR
+        player.sendMessage(Component.text("Респавн отключён: ваш хранитель уничтожен", NamedTextColor.RED))
+    }
+
+    fun checkForVictory() {
+        if (state != GameState.RUNNING) return
+
+        val aliveTeams = hashSetOf<TheWallsTeam>()
+        for ((uuid, team) in teamByPlayer) {
+            val p = Bukkit.getPlayer(uuid) ?: continue
+            if (p.world.name != worldName) continue
+            if (p.gameMode == GameMode.SPECTATOR) continue
+            aliveTeams.add(team)
+        }
+
+        if (aliveTeams.size == 1) {
+            endGame(aliveTeams.first(), reason = "last_team", immediate = false)
+        } else if (aliveTeams.isEmpty()) {
+            endGame(null, reason = "no_alive", immediate = true)
         }
     }
 
-    private fun spawnGuardian(team: TheWallsTeam) {
-        val w = Bukkit.getWorld(worldName) ?: return
-        val sp = guardianSpawns[team] ?: teamSpawns[team] ?: return
-        val loc = sp.toLocation(worldName)
+    private fun spawnAllGuardians() {
+        var spawned = 0
+        for (team in TheWallsTeam.entries) {
+            if (guardianLivesLeft.getOrElse(team.index) { 0 } <= 0) continue
+            if (spawnGuardian(team)) {
+                spawned++
+            }
+        }
+
+        if (spawned <= 0) {
+            TheWallsPlugin.instance.logger.warning(
+                "[TheWalls] Guardians enabled but none spawned in world='$worldName'. Check arena guardian-spawns/team-spawns"
+            )
+        }
+    }
+
+    private fun spawnGuardian(team: TheWallsTeam): Boolean {
+        val w = Bukkit.getWorld(worldName)
+        if (w == null) {
+            TheWallsPlugin.instance.logger.warning("[TheWalls] Cannot spawn guardian for ${team.name}: world '$worldName' is not loaded")
+            return false
+        }
+
+        val sp = guardianSpawns[team] ?: teamSpawns[team]
+        if (sp == null) {
+            TheWallsPlugin.instance.logger.warning("[TheWalls] Cannot spawn guardian for ${team.name}: no guardian-spawns and no team-spawns fallback")
+            return false
+        }
+        val loc = Location(w, sp.x, sp.y, sp.z, sp.yaw, sp.pitch)
+
+        try {
+            val chunk = loc.chunk
+            if (!chunk.isLoaded) chunk.load()
+        } catch (_: Exception) {
+        }
 
         // Cleanup previous entity if exists
         guardianEntityIds[team.index]?.let { oldId ->
@@ -705,23 +808,30 @@ class TheWallsGame(
         }
 
         val nameRaw = ChatColor.translateAlternateColorCodes('&', TheWallsSettings.guardianName)
-        val entity = w.spawn(loc, Illusioner::class.java) { e ->
-            e.persistentDataContainer.set(TheWallsKeys.guardianTeamKey, PersistentDataType.STRING, team.name)
-            e.customName = "${team.color}$nameRaw"
-            e.isCustomNameVisible = true
-            e.removeWhenFarAway = false
-            e.isPersistent = true
-            e.canPickupItems = false
+        val entity = try {
+            w.spawn(loc, Illusioner::class.java) { e ->
+                e.persistentDataContainer.set(TheWallsKeys.guardianTeamKey, PersistentDataType.STRING, team.name)
+                e.customName = "${team.color}$nameRaw"
+                e.isCustomNameVisible = true
+                e.removeWhenFarAway = false
+                e.isPersistent = true
+                e.canPickupItems = false
 
-            val max = TheWallsSettings.guardianMaxHealth
-            e.getAttribute(Attribute.MAX_HEALTH)?.baseValue = max
-            try {
-                e.health = max
-            } catch (_: Exception) {
+                val max = TheWallsSettings.guardianMaxHealth
+                e.getAttribute(Attribute.MAX_HEALTH)?.baseValue = max
+                try {
+                    e.health = max
+                } catch (_: Exception) {
+                }
             }
+        } catch (e: Exception) {
+            TheWallsPlugin.instance.logger.warning("[TheWalls] Failed to spawn guardian for ${team.name}: ${e.message}")
+            return false
         }
 
         guardianEntityIds[team.index] = entity.uniqueId
+
+        return true
     }
 
     fun handleGuardianKilled(team: TheWallsTeam, killer: Player?) {
@@ -756,6 +866,14 @@ class TheWallsGame(
             }, (respawnSeconds.coerceAtLeast(0) * 20L)).taskId
             tasks[key] = taskId
         } else {
+            respawnEnabled[team.index] = false
+
+            val teamMsg = Component.text("Ваш хранитель уничтожен — респавн отключён!", NamedTextColor.RED)
+            teamByPlayer.entries
+                .filter { it.value == team }
+                .mapNotNull { Bukkit.getPlayer(it.key) }
+                .forEach { it.sendMessage(teamMsg) }
+
             val msg = Component.text("Хранитель команды ", NamedTextColor.RED)
                 .append(Component.text(team.displayName, team.adventureColor()))
                 .append(Component.text(" уничтожен!", NamedTextColor.RED))

@@ -2,6 +2,7 @@ package ru.joutak.thewalls.listener
 
 import net.kyori.adventure.text.Component
 import net.kyori.adventure.text.format.NamedTextColor
+import org.bukkit.GameMode
 import org.bukkit.event.EventHandler
 import org.bukkit.event.EventPriority
 import org.bukkit.event.Listener
@@ -18,6 +19,7 @@ object CenterRestrictionListener : Listener {
         val game = TheWallsGameManager.getGame(player.uniqueId) ?: return
 
         if (player.world.name != game.worldName) return
+        if (player.gameMode == GameMode.SPECTATOR) return
         if (game.state != GameState.RUNNING) return
         if (game.phase != TheWallsPhase.BUILD) return
 
