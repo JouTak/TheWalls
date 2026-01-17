@@ -79,6 +79,10 @@ class TheWallsGame(
 
     private val respawnEnabled = BooleanArray(TheWallsTeam.entries.size) { true }
 
+    private val respawnWaiting = HashSet<UUID>()
+
+    private fun respawnTaskKey(uuid: UUID): String = "respawn_$uuid"
+
     fun start() {
         if (state != GameState.WAITING) return
         state = GameState.COUNTDOWN
@@ -88,6 +92,8 @@ class TheWallsGame(
     }
 
     fun isParticipant(uuid: UUID): Boolean = teamByPlayer.containsKey(uuid)
+
+    fun isWaitingRespawn(uuid: UUID): Boolean = respawnWaiting.contains(uuid)
 
     fun getTeam(uuid: UUID): TheWallsTeam? = teamByPlayer[uuid]
 
@@ -105,6 +111,130 @@ class TheWallsGame(
         val damagerTeam = teamByPlayer[damagerId] ?: return
         killsByPlayer[damagerId] = (killsByPlayer[damagerId] ?: 0) + 1
         teamKills[damagerTeam.index]++
+    }
+
+    fun startRespawnFlow(player: Player) {
+        if (state != GameState.RUNNING) return
+
+        val uuid = player.uniqueId
+        val team = teamByPlayer[uuid] ?: return
+
+        cancelRespawnTimer(uuid)
+
+        val deathLoc = player.location.clone()
+
+        Bukkit.getScheduler().runTaskLater(TheWallsPlugin.instance, Runnable {
+            if (state != GameState.RUNNING) return@Runnable
+            if (!player.isOnline) return@Runnable
+            if (teamByPlayer[uuid] != team) return@Runnable
+
+            try {
+                player.spigot().respawn()
+            } catch (_: Exception) {
+            }
+
+            if (!isRespawnEnabled(team)) {
+                player.gameMode = GameMode.SPECTATOR
+                try {
+                    player.teleport(deathLoc)
+                } catch (_: Exception) {
+                }
+                player.sendMessage(Component.text("Вы больше не можете возрождаться: хранитель уничтожен", NamedTextColor.RED))
+                Bukkit.getScheduler().runTaskLater(TheWallsPlugin.instance, Runnable { checkForVictory() }, 2L)
+                return@Runnable
+            }
+
+            val delay = TheWallsSettings.respawnDelaySeconds
+            if (delay <= 0) {
+                Bukkit.getScheduler().runTaskLater(TheWallsPlugin.instance, Runnable {
+                    if (state != GameState.RUNNING) return@Runnable
+                    if (!player.isOnline) return@Runnable
+                    if (teamByPlayer[uuid] != team) return@Runnable
+
+                    if (!isRespawnEnabled(team)) {
+                        player.gameMode = GameMode.SPECTATOR
+                        player.sendMessage(Component.text("Вы больше не можете возрождаться: хранитель уничтожен", NamedTextColor.RED))
+                        checkForVictory()
+                        return@Runnable
+                    }
+
+                    val spawn = getRespawnLocation(uuid) ?: return@Runnable
+                    player.teleport(spawn)
+                    player.gameMode = GameMode.SURVIVAL
+                    val maxHealth = player.getAttribute(Attribute.MAX_HEALTH)?.value ?: 20.0
+                    player.health = maxHealth
+                    player.foodLevel = 20
+                    player.fireTicks = 0
+                    player.noDamageTicks = 40
+                }, 1L)
+                return@Runnable
+            }
+
+            if (TheWallsSettings.respawnSpectatorMode) {
+                player.gameMode = GameMode.SPECTATOR
+                try {
+                    player.teleport(deathLoc)
+                } catch (_: Exception) {
+                }
+            }
+
+            respawnWaiting.add(uuid)
+            var remaining = delay
+
+            val taskId = Bukkit.getScheduler().runTaskTimer(TheWallsPlugin.instance, Runnable {
+                if (state != GameState.RUNNING || !player.isOnline || teamByPlayer[uuid] != team) {
+                    cancelRespawnTimer(uuid)
+                    return@Runnable
+                }
+
+                if (!isRespawnEnabled(team)) {
+                    cancelRespawnTimer(uuid)
+                    player.gameMode = GameMode.SPECTATOR
+                    player.sendMessage(Component.text("Возрождение отменено: хранитель уничтожен", NamedTextColor.RED))
+                    checkForVictory()
+                    return@Runnable
+                }
+
+                if (remaining <= 0) {
+                    cancelRespawnTimer(uuid)
+                    val spawn = getRespawnLocation(uuid) ?: return@Runnable
+                    player.teleport(spawn)
+                    player.gameMode = GameMode.SURVIVAL
+                    val maxHealth = player.getAttribute(Attribute.MAX_HEALTH)?.value ?: 20.0
+                    player.health = maxHealth
+                    player.foodLevel = 20
+                    player.fireTicks = 0
+                    player.noDamageTicks = 40
+
+                    player.showTitle(
+                        Title.title(
+                            Component.text("Возрождение!", NamedTextColor.GREEN),
+                            Component.text("Удачи!", NamedTextColor.YELLOW),
+                            Title.Times.times(Duration.ofMillis(150), Duration.ofMillis(700), Duration.ofMillis(200))
+                        )
+                    )
+                    player.playSound(player.location, Sound.ENTITY_PLAYER_LEVELUP, 0.8f, 1.2f)
+                    return@Runnable
+                }
+
+                player.showTitle(
+                    Title.title(
+                        Component.text("☠ Вы погибли ☠", NamedTextColor.RED),
+                        Component.text("Возрождение через: $remaining сек.", NamedTextColor.YELLOW),
+                        Title.Times.times(Duration.ofMillis(0), Duration.ofMillis(1000), Duration.ofMillis(0))
+                    )
+                )
+                player.playSound(player.location, Sound.BLOCK_NOTE_BLOCK_PLING, 0.5f, 1.0f)
+                remaining--
+            }, 0L, 20L).taskId
+
+            tasks[respawnTaskKey(uuid)] = taskId
+        }, 1L)
+    }
+
+    private fun cancelRespawnTimer(uuid: UUID) {
+        respawnWaiting.remove(uuid)
+        cancelTask(respawnTaskKey(uuid))
     }
 
     fun getRespawnLocation(playerId: UUID): Location? {
@@ -227,6 +357,7 @@ class TheWallsGame(
     }
 
     fun removePlayer(uuid: UUID) {
+        cancelRespawnTimer(uuid)
         Bukkit.getPlayer(uuid)?.let {
             bossBar?.removePlayer(it)
             matchScoreboard?.removePlayer(it)
@@ -442,7 +573,7 @@ class TheWallsGame(
         for ((uuid, team) in teamByPlayer) {
             val p = Bukkit.getPlayer(uuid) ?: continue
             if (p.world.name != worldName) continue
-            if (p.gameMode == GameMode.SPECTATOR) continue
+            if (p.gameMode == GameMode.SPECTATOR && !respawnWaiting.contains(uuid)) continue
             alive[team.index]++
         }
 
@@ -752,7 +883,7 @@ class TheWallsGame(
         for ((uuid, team) in teamByPlayer) {
             val p = Bukkit.getPlayer(uuid) ?: continue
             if (p.world.name != worldName) continue
-            if (p.gameMode == GameMode.SPECTATOR) continue
+            if (p.gameMode == GameMode.SPECTATOR && !respawnWaiting.contains(uuid)) continue
             aliveTeams.add(team)
         }
 

@@ -185,6 +185,7 @@ object GameListener : Listener {
 
         if (victim.world.name != game.worldName) return
         game.handleDeath(victim)
+        game.startRespawnFlow(victim)
     }
 
     @EventHandler
@@ -192,8 +193,13 @@ object GameListener : Listener {
         val player = event.player
         val game = TheWallsGameManager.getGame(player.uniqueId) ?: return
 
-        val loc = game.getRespawnLocation(player.uniqueId) ?: return
-        event.respawnLocation = loc
+        // If we use delayed respawn with spectator-waiting, prevent Bukkit from teleporting to team spawn immediately.
+        if (TheWallsSettings.respawnDelaySeconds > 0 && game.state == GameState.RUNNING) {
+            event.respawnLocation = player.location
+        } else {
+            val loc = game.getRespawnLocation(player.uniqueId) ?: return
+            event.respawnLocation = loc
+        }
 
         // Apply spectator mode if respawn is disabled for this team.
         game.applyRespawnRules(player)

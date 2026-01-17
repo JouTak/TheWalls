@@ -109,6 +109,12 @@ object TheWallsSettings {
     var guardianName: String = "Хранитель"
         private set
 
+    var respawnDelaySeconds: Int = 5
+        private set
+
+    var respawnSpectatorMode: Boolean = true
+        private set
+
     private val arenas = mutableListOf<ArenaConfig>()
     val arenasById: Map<String, ArenaConfig> get() = arenas.associateBy { it.id }
     val templateWorlds: Set<String> get() = arenas.map { it.templateWorld }.toSet()
@@ -149,6 +155,9 @@ object TheWallsSettings {
         cfg.addDefault("guardians.respawn-seconds", 10)
         cfg.addDefault("guardians.max-health", 40.0)
         cfg.addDefault("guardians.name", "Хранитель")
+
+        cfg.addDefault("respawn.delay-seconds", 5)
+        cfg.addDefault("respawn.spectator-mode", true)
 
         cfg.options().copyDefaults(true)
         plugin.saveConfig()
@@ -218,6 +227,9 @@ object TheWallsSettings {
         guardianRespawnSeconds = cfg.getInt("guardians.respawn-seconds", 10).coerceIn(0, 600)
         guardianMaxHealth = cfg.getDouble("guardians.max-health", 40.0).coerceIn(1.0, 2048.0)
         guardianName = cfg.getString("guardians.name", "Хранитель") ?: "Хранитель"
+
+        respawnDelaySeconds = cfg.getInt("respawn.delay-seconds", 5).coerceIn(0, 600)
+        respawnSpectatorMode = cfg.getBoolean("respawn.spectator-mode", true)
 
         arenas.clear()
         val arenasList = cfg.getList("arenas") ?: emptyList<Any>()
