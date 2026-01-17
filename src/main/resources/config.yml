@@ -14,6 +14,9 @@ match:
   total-seconds: 900
   # Time until walls are opened (phase BUILD -> OPEN).
   build-seconds: 600
+  # Difficulty for match world. NOTE: if guardians.enabled=true, PEACEFUL will be forced to NORMAL.
+  # Values: PEACEFUL, EASY, NORMAL, HARD
+  difficulty: NORMAL
   walls:
     # How many wall blocks to process per server tick when opening walls.
     # Higher values -> faster opening, but more load per tick.

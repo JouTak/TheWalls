@@ -1,6 +1,7 @@
 package ru.joutak.thewalls.config
 
 import org.bukkit.Bukkit
+import org.bukkit.Difficulty
 import org.bukkit.Location
 import org.bukkit.Material
 import org.bukkit.plugin.java.JavaPlugin
@@ -75,6 +76,9 @@ object TheWallsSettings {
     var matchBuildSeconds: Int = 600
         private set
 
+    var matchDifficulty: Difficulty = Difficulty.NORMAL
+        private set
+
     var wallBreakBlocksPerTick: Int = 8000
         private set
 
@@ -120,6 +124,7 @@ object TheWallsSettings {
         cfg.addDefault("match.duration-seconds", 900)
         cfg.addDefault("match.total-seconds", 900)
         cfg.addDefault("match.build-seconds", 600)
+        cfg.addDefault("match.difficulty", "NORMAL")
         cfg.addDefault("match.walls.blocks-per-tick", 8000)
         cfg.addDefault("match.walls.keep-blocks", emptyList<String>())
 
@@ -149,7 +154,7 @@ object TheWallsSettings {
         plugin.saveConfig()
 
         lobbyWorld = cfg.getString("lobby.world", "lobby") ?: "lobby"
-        lobbySpawn = parseSpawn(cfg.getString("lobby.spawn", "0, 65, 0, 0, 0"))
+        lobbySpawn = parseSpawn(cfg.get("lobby.spawn") ?: "0, 65, 0, 0, 0")
 
         playersPerTeam = cfg.getInt("players-per-team", 4).coerceAtLeast(1)
         countdownSeconds = cfg.getInt("match.countdown-seconds", 10).coerceAtLeast(0)
@@ -165,6 +170,13 @@ object TheWallsSettings {
         val defaultBuild = minOf(600, maxOf(0, matchTotalSeconds - 60))
         matchBuildSeconds = cfg.getInt("match.build-seconds", defaultBuild)
             .coerceIn(0, maxOf(0, matchTotalSeconds - 1))
+
+        matchDifficulty = try {
+            Difficulty.valueOf(cfg.getString("match.difficulty", "NORMAL")!!.trim().uppercase())
+        } catch (_: Exception) {
+            plugin.logger.warning("[TheWalls] Unknown match.difficulty in config.yml. Using NORMAL")
+            Difficulty.NORMAL
+        }
 
         wallBreakBlocksPerTick = cfg.getInt("match.walls.blocks-per-tick", 8000)
             .coerceIn(250, 50_000)
@@ -197,6 +209,11 @@ object TheWallsSettings {
         protectedBlocks = protectedSet
 
         guardiansEnabled = cfg.getBoolean("guardians.enabled", true)
+
+        if (guardiansEnabled && matchDifficulty == Difficulty.PEACEFUL) {
+            plugin.logger.warning("[TheWalls] match.difficulty=PEACEFUL is incompatible with guardians. Forcing NORMAL")
+            matchDifficulty = Difficulty.NORMAL
+        }
         guardianLives = cfg.getInt("guardians.lives", 3).coerceIn(1, 100)
         guardianRespawnSeconds = cfg.getInt("guardians.respawn-seconds", 10).coerceIn(0, 600)
         guardianMaxHealth = cfg.getDouble("guardians.max-health", 40.0).coerceIn(1.0, 2048.0)
@@ -218,9 +235,11 @@ object TheWallsSettings {
             val spawnsRaw = sec["team-spawns"] as? Map<*, *> ?: emptyMap<Any, Any>()
             val teamSpawns = mutableMapOf<TheWallsTeam, SpawnPoint>()
             for (team in TheWallsTeam.entries) {
-                val str = spawnsRaw[team.name]?.toString()
-                if (str != null) {
-                    teamSpawns[team] = parseSpawn(str)
+                val value = spawnsRaw.entries.firstOrNull {
+                    it.key?.toString()?.equals(team.name, ignoreCase = true) == true
+                }?.value
+                if (value != null) {
+                    teamSpawns[team] = parseSpawn(value)
                 }
             }
 
@@ -228,13 +247,15 @@ object TheWallsSettings {
             val guardianRaw = sec["guardian-spawns"] as? Map<*, *> ?: emptyMap<Any, Any>()
             val guardianSpawns = mutableMapOf<TheWallsTeam, SpawnPoint>()
             for (team in TheWallsTeam.entries) {
-                val str = guardianRaw[team.name]?.toString()
-                if (str != null) {
-                    guardianSpawns[team] = parseSpawn(str)
+                val value = guardianRaw.entries.firstOrNull {
+                    it.key?.toString()?.equals(team.name, ignoreCase = true) == true
+                }?.value
+                if (value != null) {
+                    guardianSpawns[team] = parseSpawn(value)
                 }
             }
             val centerSec = sec["center"] as? Map<*, *>
-            val centerPoint = parseSpawn(centerSec?.get("point")?.toString() ?: "0, 65, 0")
+            val centerPoint = parseSpawn(centerSec?.get("point") ?: "0, 65, 0")
             val centerRadius = (centerSec?.get("radius") as? Number)?.toDouble()?.coerceAtLeast(0.0) ?: 0.0
 
             val wallsRaw = sec["walls"] as? List<*> ?: emptyList<Any>()
@@ -307,12 +328,48 @@ object TheWallsSettings {
             )
         }
     }
+    private fun parseSpawn(raw: Any?, defaultY: Double = 65.0): SpawnPoint {
+        if (raw == null) return SpawnPoint(0.0, defaultY, 0.0, 0f, 0f)
 
-    private fun parseSpawn(raw: String?): SpawnPoint {
-        if (raw.isNullOrBlank()) return SpawnPoint(0.0, 65.0, 0.0, 0f, 0f)
-        val parts = raw.split(',').map { it.trim() }.filter { it.isNotBlank() }
+        when (raw) {
+            is List<*> -> {
+                val p0 = raw.getOrNull(0)
+                val p1 = raw.getOrNull(1)
+                val p2 = raw.getOrNull(2)
+                val p3 = raw.getOrNull(3)
+                val p4 = raw.getOrNull(4)
+
+                val x = (p0 as? Number)?.toDouble() ?: p0?.toString()?.trim()?.trim('[',']','(',')')?.toDoubleOrNull() ?: 0.0
+                val y = (p1 as? Number)?.toDouble() ?: p1?.toString()?.trim()?.trim('[',']','(',')')?.toDoubleOrNull() ?: defaultY
+                val z = (p2 as? Number)?.toDouble() ?: p2?.toString()?.trim()?.trim('[',']','(',')')?.toDoubleOrNull() ?: 0.0
+                val yaw = (p3 as? Number)?.toFloat() ?: p3?.toString()?.trim()?.trim('[',']','(',')')?.toFloatOrNull() ?: 0f
+                val pitch = (p4 as? Number)?.toFloat() ?: p4?.toString()?.trim()?.trim('[',']','(',')')?.toFloatOrNull() ?: 0f
+
+                return SpawnPoint(x, y, z, yaw, pitch)
+            }
+            is Map<*, *> -> {
+                val x = (raw["x"] as? Number)?.toDouble() ?: raw["x"]?.toString()?.toDoubleOrNull() ?: 0.0
+                val y = (raw["y"] as? Number)?.toDouble() ?: raw["y"]?.toString()?.toDoubleOrNull() ?: defaultY
+                val z = (raw["z"] as? Number)?.toDouble() ?: raw["z"]?.toString()?.toDoubleOrNull() ?: 0.0
+                val yaw = (raw["yaw"] as? Number)?.toFloat() ?: raw["yaw"]?.toString()?.toFloatOrNull() ?: 0f
+                val pitch = (raw["pitch"] as? Number)?.toFloat() ?: raw["pitch"]?.toString()?.toFloatOrNull() ?: 0f
+                return SpawnPoint(x, y, z, yaw, pitch)
+            }
+        }
+
+        val str = raw.toString().trim()
+        if (str.isBlank()) return SpawnPoint(0.0, defaultY, 0.0, 0f, 0f)
+
+        // Support ";" separators and list-like formats: "[x, y, z]"
+        val cleaned = str.replace(';', ',')
+        val parts = if (cleaned.contains(',')) {
+            cleaned.split(',')
+        } else {
+            cleaned.split(Regex("\\s+"))
+        }.map { it.trim().trim('[',']','(',')') }.filter { it.isNotBlank() }
+
         val x = parts.getOrNull(0)?.toDoubleOrNull() ?: 0.0
-        val y = parts.getOrNull(1)?.toDoubleOrNull() ?: 65.0
+        val y = parts.getOrNull(1)?.toDoubleOrNull() ?: defaultY
         val z = parts.getOrNull(2)?.toDoubleOrNull() ?: 0.0
         val yaw = parts.getOrNull(3)?.toFloatOrNull() ?: 0f
         val pitch = parts.getOrNull(4)?.toFloatOrNull() ?: 0f
