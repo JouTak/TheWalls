@@ -19,13 +19,17 @@ object TheWallsGameManager {
 
     fun getGameByWorld(worldName: String): TheWallsGame? = gamesByWorld[worldName]
 
+    fun getActiveGames(): List<TheWallsGame> = gamesByWorld.values.toList()
+
+    fun getBestActiveGame(): TheWallsGame? = gamesByWorld.values.maxByOrNull { it.teamByPlayer.size }
+
     fun createGame(instance: GameInstance) {
         val arenaId = (instance.config.meta["arenaId"] as? String) ?: instance.config.id
         val arenaCfg = TheWallsSettings.arenasById[arenaId]
 
         val templateWorldName = arenaCfg?.templateWorld
             ?: (instance.config.meta["world"] as? String)
-            ?: arenaId
+            ?: TheWallsSettings.defaultTemplateWorld
 
         val arena = try {
             TheWallsArenaManager.createPhysicalArena(arenaId, templateWorldName)
@@ -34,16 +38,19 @@ object TheWallsGameManager {
             return
         }
 
+        val cfg = arena.config ?: arenaCfg
+
         val game = TheWallsGame(
             instance = instance,
             arenaId = arenaId,
             worldName = arena.worldName,
-            teamSpawns = arenaCfg?.teamSpawns ?: emptyMap(),
-            centerPoint = arenaCfg?.centerPoint,
-            centerRadius = arenaCfg?.centerRadius,
-            wallRegions = arenaCfg?.walls ?: emptyList(),
-            wallBreakBlocksPerTick = TheWallsSettings.wallBreakBlocksPerTick,
-            guardianSpawns = arenaCfg?.guardianSpawns ?: emptyMap()
+            teamSpawns = cfg?.teamSpawns ?: emptyMap(),
+            teamSectors = cfg?.teamSectors ?: emptyMap(),
+            centerPoint = cfg?.centerPoint,
+            centerRadius = cfg?.centerRadius,
+            wallRegions = cfg?.walls ?: emptyList(),
+            guardianSpawns = cfg?.guardianSpawns ?: emptyMap(),
+            wallBreakBlocksPerTick = TheWallsSettings.wallBreakBlocksPerTick
         )
 
         gamesByWorld[arena.worldName] = game

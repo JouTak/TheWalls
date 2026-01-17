@@ -21,6 +21,7 @@ import org.bukkit.entity.Player
 import ru.joutak.minigames.domain.GameInstance
 import ru.joutak.minigames.managers.MatchmakingManager
 import ru.joutak.thewalls.TheWallsPlugin
+import ru.joutak.thewalls.config.ScenarioConfig
 import ru.joutak.thewalls.config.TheWallsSettings
 import ru.joutak.thewalls.lobby.LobbyService
 import java.time.Duration
@@ -32,6 +33,7 @@ class TheWallsGame(
     val arenaId: String,
     val worldName: String,
     private val teamSpawns: Map<TheWallsTeam, TheWallsSettings.SpawnPoint>,
+    private val teamSectors: Map<TheWallsTeam, TheWallsSettings.CuboidRegion>,
     private val centerPoint: TheWallsSettings.SpawnPoint?,
     private val centerRadius: Double?,
     private val wallRegions: List<TheWallsSettings.CuboidRegion>,
@@ -46,22 +48,26 @@ class TheWallsGame(
     private var bossBar: BossBar? = null
     private var matchScoreboard: TheWallsMatchScoreboard? = null
 
-    @Volatile
-    var phase: TheWallsPhase = TheWallsPhase.BUILD
-        private set
+    private var phases: List<GamePhase> = emptyList()
+    private var currentPhaseIndex: Int = 0
+    private var elapsedSeconds: Int = 0
+    private var currentPhaseStartSecond: Int = 0
+    private var currentPhaseEndSecond: Int = 0
 
     val teamByPlayer = mutableMapOf<UUID, TheWallsTeam>()
+    private val respawnEnabled = BooleanArray(TheWallsTeam.entries.size) { true }
+
     private val killsByPlayer = mutableMapOf<UUID, Int>()
     private val teamKills = IntArray(TheWallsTeam.entries.size) { 0 }
 
     // Used for basic kill attribution (no combat logic yet)
     private val lastDamager = mutableMapOf<UUID, Pair<UUID, Long>>()
 
-    var totalRemainingSeconds: Int = TheWallsSettings.matchTotalSeconds
+    var totalRemainingSeconds: Int = 0
         private set
 
-    var buildRemainingSeconds: Int = TheWallsSettings.matchBuildSeconds
-        private set
+    private var matchEndSecond: Int = 0
+    private var buildPhaseEndOverride: Int? = null
 
     private var centerX: Double = 0.0
     private var centerZ: Double = 0.0
@@ -70,6 +76,8 @@ class TheWallsGame(
 
     private val wallWarnUntil = mutableMapOf<UUID, Long>()
 
+    private val sectorWarnUntil = mutableMapOf<UUID, Long>()
+
     private var wallBreakTotalBlocks: Long = 0L
     private var wallBreakDoneBlocks: Long = 0L
     private var wallBreakLastInfoMs: Long = 0L
@@ -77,11 +85,47 @@ class TheWallsGame(
     private val guardianEntityIds = arrayOfNulls<UUID>(TheWallsTeam.entries.size)
     private val guardianLivesLeft = IntArray(TheWallsTeam.entries.size) { TheWallsSettings.guardianLives }
 
-    private val respawnEnabled = BooleanArray(TheWallsTeam.entries.size) { true }
+    fun getCurrentPhase(): GamePhase? = phases.getOrNull(currentPhaseIndex)
 
-    private val respawnWaiting = HashSet<UUID>()
+    fun getCurrentPhaseName(): String = getCurrentPhase()?.name ?: "—"
 
-    private fun respawnTaskKey(uuid: UUID): String = "respawn_$uuid"
+    fun getCurrentPhaseRemainingSeconds(): Int? {
+        val phase = getCurrentPhase() ?: return null
+        val endAt = currentPhaseEndSecond
+        val rem = (endAt - elapsedSeconds).coerceAtLeast(0)
+        // Phase can be configured as instant (duration 0). In this case show 0.
+        return rem
+    }
+
+    // Compatibility: legacy two-phase view used by admin command
+    val phase: TheWallsPhase
+        get() {
+            val p = getCurrentPhase()
+            return if (p == null) {
+                TheWallsPhase.OPEN
+            } else {
+                if (p.wallsLocked || p.centerLocked) TheWallsPhase.BUILD else TheWallsPhase.OPEN
+            }
+        }
+
+    // Remaining seconds until the "build" stage ends (0 if already open).
+    val buildRemainingSeconds: Int
+        get() {
+            if (phase != TheWallsPhase.BUILD) return 0
+            return getCurrentPhaseRemainingSeconds() ?: 0
+        }
+
+    fun getTeamSpawnLocation(team: TheWallsTeam): Location? {
+        return teamSpawns[team]?.toLocation(worldName)
+    }
+
+    fun isRespawnEnabled(team: TheWallsTeam): Boolean = respawnEnabled.getOrElse(team.index) { false }
+
+    fun getGuardianLives(team: TheWallsTeam): Int = guardianLivesLeft.getOrElse(team.index) { 0 }
+
+    fun isWallsLockedNow(): Boolean = state == GameState.RUNNING && (getCurrentPhase()?.wallsLocked == true)
+
+    fun isPvpEnabledNow(): Boolean = getCurrentPhase()?.pvpEnabled ?: true
 
     fun start() {
         if (state != GameState.WAITING) return
@@ -92,8 +136,6 @@ class TheWallsGame(
     }
 
     fun isParticipant(uuid: UUID): Boolean = teamByPlayer.containsKey(uuid)
-
-    fun isWaitingRespawn(uuid: UUID): Boolean = respawnWaiting.contains(uuid)
 
     fun getTeam(uuid: UUID): TheWallsTeam? = teamByPlayer[uuid]
 
@@ -111,130 +153,6 @@ class TheWallsGame(
         val damagerTeam = teamByPlayer[damagerId] ?: return
         killsByPlayer[damagerId] = (killsByPlayer[damagerId] ?: 0) + 1
         teamKills[damagerTeam.index]++
-    }
-
-    fun startRespawnFlow(player: Player) {
-        if (state != GameState.RUNNING) return
-
-        val uuid = player.uniqueId
-        val team = teamByPlayer[uuid] ?: return
-
-        cancelRespawnTimer(uuid)
-
-        val deathLoc = player.location.clone()
-
-        Bukkit.getScheduler().runTaskLater(TheWallsPlugin.instance, Runnable {
-            if (state != GameState.RUNNING) return@Runnable
-            if (!player.isOnline) return@Runnable
-            if (teamByPlayer[uuid] != team) return@Runnable
-
-            try {
-                player.spigot().respawn()
-            } catch (_: Exception) {
-            }
-
-            if (!isRespawnEnabled(team)) {
-                player.gameMode = GameMode.SPECTATOR
-                try {
-                    player.teleport(deathLoc)
-                } catch (_: Exception) {
-                }
-                player.sendMessage(Component.text("Вы больше не можете возрождаться: хранитель уничтожен", NamedTextColor.RED))
-                Bukkit.getScheduler().runTaskLater(TheWallsPlugin.instance, Runnable { checkForVictory() }, 2L)
-                return@Runnable
-            }
-
-            val delay = TheWallsSettings.respawnDelaySeconds
-            if (delay <= 0) {
-                Bukkit.getScheduler().runTaskLater(TheWallsPlugin.instance, Runnable {
-                    if (state != GameState.RUNNING) return@Runnable
-                    if (!player.isOnline) return@Runnable
-                    if (teamByPlayer[uuid] != team) return@Runnable
-
-                    if (!isRespawnEnabled(team)) {
-                        player.gameMode = GameMode.SPECTATOR
-                        player.sendMessage(Component.text("Вы больше не можете возрождаться: хранитель уничтожен", NamedTextColor.RED))
-                        checkForVictory()
-                        return@Runnable
-                    }
-
-                    val spawn = getRespawnLocation(uuid) ?: return@Runnable
-                    player.teleport(spawn)
-                    player.gameMode = GameMode.SURVIVAL
-                    val maxHealth = player.getAttribute(Attribute.MAX_HEALTH)?.value ?: 20.0
-                    player.health = maxHealth
-                    player.foodLevel = 20
-                    player.fireTicks = 0
-                    player.noDamageTicks = 40
-                }, 1L)
-                return@Runnable
-            }
-
-            if (TheWallsSettings.respawnSpectatorMode) {
-                player.gameMode = GameMode.SPECTATOR
-                try {
-                    player.teleport(deathLoc)
-                } catch (_: Exception) {
-                }
-            }
-
-            respawnWaiting.add(uuid)
-            var remaining = delay
-
-            val taskId = Bukkit.getScheduler().runTaskTimer(TheWallsPlugin.instance, Runnable {
-                if (state != GameState.RUNNING || !player.isOnline || teamByPlayer[uuid] != team) {
-                    cancelRespawnTimer(uuid)
-                    return@Runnable
-                }
-
-                if (!isRespawnEnabled(team)) {
-                    cancelRespawnTimer(uuid)
-                    player.gameMode = GameMode.SPECTATOR
-                    player.sendMessage(Component.text("Возрождение отменено: хранитель уничтожен", NamedTextColor.RED))
-                    checkForVictory()
-                    return@Runnable
-                }
-
-                if (remaining <= 0) {
-                    cancelRespawnTimer(uuid)
-                    val spawn = getRespawnLocation(uuid) ?: return@Runnable
-                    player.teleport(spawn)
-                    player.gameMode = GameMode.SURVIVAL
-                    val maxHealth = player.getAttribute(Attribute.MAX_HEALTH)?.value ?: 20.0
-                    player.health = maxHealth
-                    player.foodLevel = 20
-                    player.fireTicks = 0
-                    player.noDamageTicks = 40
-
-                    player.showTitle(
-                        Title.title(
-                            Component.text("Возрождение!", NamedTextColor.GREEN),
-                            Component.text("Удачи!", NamedTextColor.YELLOW),
-                            Title.Times.times(Duration.ofMillis(150), Duration.ofMillis(700), Duration.ofMillis(200))
-                        )
-                    )
-                    player.playSound(player.location, Sound.ENTITY_PLAYER_LEVELUP, 0.8f, 1.2f)
-                    return@Runnable
-                }
-
-                player.showTitle(
-                    Title.title(
-                        Component.text("☠ Вы погибли ☠", NamedTextColor.RED),
-                        Component.text("Возрождение через: $remaining сек.", NamedTextColor.YELLOW),
-                        Title.Times.times(Duration.ofMillis(0), Duration.ofMillis(1000), Duration.ofMillis(0))
-                    )
-                )
-                player.playSound(player.location, Sound.BLOCK_NOTE_BLOCK_PLING, 0.5f, 1.0f)
-                remaining--
-            }, 0L, 20L).taskId
-
-            tasks[respawnTaskKey(uuid)] = taskId
-        }, 1L)
-    }
-
-    private fun cancelRespawnTimer(uuid: UUID) {
-        respawnWaiting.remove(uuid)
-        cancelTask(respawnTaskKey(uuid))
     }
 
     fun getRespawnLocation(playerId: UUID): Location? {
@@ -308,6 +226,24 @@ class TheWallsGame(
         return true
     }
 
+    fun areSectorsLockedNow(): Boolean = state == GameState.RUNNING && (getCurrentPhase()?.wallsLocked == true)
+
+    fun isInTeamSector(team: TheWallsTeam, loc: Location): Boolean {
+        val r = teamSectors[team] ?: return true
+        val bx = loc.blockX
+        val by = loc.blockY
+        val bz = loc.blockZ
+        return bx >= r.minX && bx <= r.maxX && by >= r.minY && by <= r.maxY && bz >= r.minZ && bz <= r.maxZ
+    }
+
+    fun shouldWarnSector(playerId: UUID): Boolean {
+        val now = System.currentTimeMillis()
+        val until = sectorWarnUntil[playerId] ?: 0L
+        if (now < until) return false
+        sectorWarnUntil[playerId] = now + 1200L
+        return true
+    }
+
     private fun segmentIntersectsAabb(
         x0: Double,
         y0: Double,
@@ -357,7 +293,6 @@ class TheWallsGame(
     }
 
     fun removePlayer(uuid: UUID) {
-        cancelRespawnTimer(uuid)
         Bukkit.getPlayer(uuid)?.let {
             bossBar?.removePlayer(it)
             matchScoreboard?.removePlayer(it)
@@ -367,10 +302,6 @@ class TheWallsGame(
         killsByPlayer.remove(uuid)
         centerWarnUntil.remove(uuid)
         wallWarnUntil.remove(uuid)
-
-        if (state == GameState.RUNNING) {
-            checkForVictory()
-        }
 
         // Keep instance participant set correct (player may have quit).
         instance.removeActivePlayer(uuid)
@@ -387,7 +318,7 @@ class TheWallsGame(
     }
 
     fun endByTimeLimit() {
-        val winner = calculateWinnerAtTimeLimit()
+        val winner = calculateWinnerByKills()
         endGame(winnerTeam = winner, reason = "time", immediate = false)
     }
 
@@ -473,31 +404,21 @@ class TheWallsGame(
         if (state != GameState.COUNTDOWN) return
         state = GameState.RUNNING
 
-        val w = Bukkit.getWorld(worldName)
-        if (w != null) {
-            w.difficulty = TheWallsSettings.matchDifficulty
-        }
+        phases = ScenarioConfig.phases.toList().ifEmpty { defaultScenarioPhases() }
 
-        phase = TheWallsPhase.BUILD
-        totalRemainingSeconds = TheWallsSettings.matchTotalSeconds
-        val buildTotal = TheWallsSettings.matchBuildSeconds.coerceIn(0, maxOf(0, totalRemainingSeconds - 1))
-        buildRemainingSeconds = buildTotal
+        currentPhaseIndex = 0
+        elapsedSeconds = 0
+        matchEndSecond = ScenarioConfig.totalSeconds.coerceAtLeast(10)
+        totalRemainingSeconds = (matchEndSecond - elapsedSeconds).coerceAtLeast(0)
+        currentPhaseStartSecond = 0
+        currentPhaseEndSecond = 0
 
-        if (buildRemainingSeconds <= 0 || centerPoint == null || centerRadius == null || centerRadius <= 0) {
-            centerRadiusSq = -1.0
-        } else {
-            val centerLoc = centerPoint.toLocation(worldName)
-            centerX = centerLoc.x
-            centerZ = centerLoc.z
-            centerRadiusSq = centerRadius * centerRadius
-        }
-
-        // If build phase is zero - start already opened.
-        val startOpened = buildRemainingSeconds <= 0
+        // Init first phase (may advance immediately if duration=0).
+        ensurePhaseUpToDate(announce = true)
 
         bossBar = Bukkit.createBossBar(
             "TheWalls",
-            if (startOpened) BarColor.YELLOW else BarColor.WHITE,
+            barColorForPhase(getCurrentPhase()),
             BarStyle.SOLID
         ).also { bar ->
             teamByPlayer.keys.mapNotNull { Bukkit.getPlayer(it) }.forEach { bar.addPlayer(it) }
@@ -509,11 +430,6 @@ class TheWallsGame(
 
         if (TheWallsSettings.guardiansEnabled) {
             spawnAllGuardians()
-        }
-
-        if (startOpened) {
-            phase = TheWallsPhase.OPEN
-            startWallBreakTask()
         }
 
         val taskId = Bukkit.getScheduler().runTaskTimer(TheWallsPlugin.instance, Runnable {
@@ -528,78 +444,179 @@ class TheWallsGame(
                 return@Runnable
             }
 
+            ensurePhaseUpToDate(announce = true)
+
+            // Total time limit always wins.
+            totalRemainingSeconds = (matchEndSecond - elapsedSeconds).coerceAtLeast(0)
+            if (elapsedSeconds >= matchEndSecond) {
+                endByTimeLimit()
+                return@Runnable
+            }
+
             matchScoreboard?.update()
 
-            val phaseNow = phase
-            val totalNow = totalRemainingSeconds
-            val buildNow = buildRemainingSeconds
+            updateBossBar()
 
-            when (phaseNow) {
-                TheWallsPhase.BUILD -> {
-                    val denom = maxOf(1, TheWallsSettings.matchBuildSeconds)
-                    val progress = (buildNow.toDouble() / denom.toDouble()).coerceIn(0.0, 1.0)
-                    bossBar?.progress = progress
-                    bossBar?.setTitle("TheWalls • стены через: ${formatSeconds(buildNow)}")
-                }
-                TheWallsPhase.OPEN -> {
-                    val denom = maxOf(1, TheWallsSettings.matchTotalSeconds)
-                    val progress = (totalNow.toDouble() / denom.toDouble()).coerceIn(0.0, 1.0)
-                    bossBar?.progress = progress
-                    bossBar?.setTitle("TheWalls • осталось: ${formatSeconds(totalNow)}")
-                }
-            }
-
-            if (phaseNow == TheWallsPhase.BUILD && buildNow <= 0) {
-                switchToOpenPhase()
-            }
-
-            // decrement after displaying current values
-            totalRemainingSeconds--
-            if (phaseNow == TheWallsPhase.BUILD) {
-                buildRemainingSeconds--
-            }
-
-            if (totalRemainingSeconds < 0) {
-                endByTimeLimit()
-            }
+            elapsedSeconds++
         }, 20L, 20L).taskId
 
         tasks["timer"] = taskId
     }
 
+    private fun defaultScenarioPhases(): List<GamePhase> {
+        val buildSeconds = TheWallsSettings.matchBuildSeconds.coerceAtLeast(0)
+        val totalSeconds = TheWallsSettings.matchTotalSeconds.coerceAtLeast(10)
+        val openSeconds = (totalSeconds - buildSeconds).coerceAtLeast(1)
 
-    private fun calculateWinnerAtTimeLimit(): TheWallsTeam? {
-        val alive = IntArray(TheWallsTeam.entries.size)
-        for ((uuid, team) in teamByPlayer) {
-            val p = Bukkit.getPlayer(uuid) ?: continue
-            if (p.world.name != worldName) continue
-            if (p.gameMode == GameMode.SPECTATOR && !respawnWaiting.contains(uuid)) continue
-            alive[team.index]++
+        return listOf(
+            GamePhase(
+                order = 1,
+                name = "Подготовка",
+                durationSeconds = buildSeconds.toLong(),
+                endAtSecond = null,
+                pvpEnabled = TheWallsSettings.pvpInBuildEnabled,
+                wallsLocked = true,
+                centerLocked = true,
+                breakWallsOnStart = false,
+                startTitle = "Подготовка",
+                startSubtitle = "Стены и центр закрыты",
+                startMessage = ""
+            ),
+            GamePhase(
+                order = 2,
+                name = "Битва",
+                durationSeconds = openSeconds.toLong(),
+                endAtSecond = null,
+                pvpEnabled = true,
+                wallsLocked = false,
+                centerLocked = false,
+                breakWallsOnStart = true,
+                startTitle = "Стены разрушены!",
+                startSubtitle = "Центр открыт",
+                startMessage = ""
+            )
+        )
+    }
+
+    private fun barColorForPhase(phase: GamePhase?): BarColor {
+        if (phase == null) return BarColor.WHITE
+        return when {
+            !phase.pvpEnabled -> BarColor.BLUE
+            phase.wallsLocked || phase.centerLocked -> BarColor.WHITE
+            else -> BarColor.YELLOW
         }
+    }
 
-        var bestTeam: TheWallsTeam? = null
-        var bestRespawn = -1
-        var bestAlive = -1
-        var bestKills = -1
+    private fun ensurePhaseUpToDate(announce: Boolean) {
+        if (phases.isEmpty()) return
 
-        for (team in TheWallsTeam.entries) {
-            val aliveCount = alive.getOrElse(team.index) { 0 }
-            if (aliveCount <= 0) continue
-            val respawnScore = if (isRespawnEnabled(team)) 1 else 0
-            val kills = teamKills.getOrElse(team.index) { 0 }
+        var safety = 0
+        while (safety++ < 1000) {
+            val phase = getCurrentPhase() ?: run {
+                // Scenario finished -> end by time (kills) earlier than hard limit.
+                endByTimeLimit()
+                return
+            }
 
-            if (respawnScore > bestRespawn
-                || (respawnScore == bestRespawn && aliveCount > bestAlive)
-                || (respawnScore == bestRespawn && aliveCount == bestAlive && kills > bestKills)
-            ) {
-                bestTeam = team
-                bestRespawn = respawnScore
-                bestAlive = aliveCount
-                bestKills = kills
+            if (currentPhaseEndSecond <= 0) {
+                currentPhaseEndSecond = computePhaseEndSecond(phase, currentPhaseStartSecond)
+                applyPhaseSettings(phase, announce = announce)
+            }
+
+            if (elapsedSeconds < currentPhaseEndSecond) return
+
+            // Advance
+            currentPhaseIndex++
+            currentPhaseStartSecond = elapsedSeconds
+            currentPhaseEndSecond = 0
+        }
+    }
+
+    private fun computePhaseEndSecond(phase: GamePhase, phaseStartSecond: Int): Int {
+        // Admin override: treat the first phase as the "build" stage and allow updating its end time.
+        if (currentPhaseIndex == 0) {
+            val overrideEnd = buildPhaseEndOverride
+            if (overrideEnd != null) {
+                return overrideEnd.coerceAtLeast(phaseStartSecond)
             }
         }
 
-        return bestTeam ?: calculateWinnerByKills()
+        val abs = phase.endAtSecond
+        return if (abs != null) {
+            abs.toInt().coerceAtLeast(phaseStartSecond)
+        } else {
+            (phaseStartSecond.toLong() + phase.durationSeconds).toInt().coerceAtLeast(phaseStartSecond)
+        }
+    }
+
+    private fun applyPhaseSettings(phase: GamePhase, announce: Boolean) {
+        bossBar?.color = barColorForPhase(phase)
+
+        // Center restriction is driven by centerRadiusSq.
+        if (!phase.centerLocked || centerPoint == null || centerRadius == null || centerRadius <= 0) {
+            centerRadiusSq = -1.0
+        } else {
+            val centerLoc = centerPoint.toLocation(worldName)
+            centerX = centerLoc.x
+            centerZ = centerLoc.z
+            centerRadiusSq = centerRadius * centerRadius
+        }
+
+        if (phase.breakWallsOnStart) {
+            startWallBreakTask()
+        }
+
+        if (!announce) return
+
+        val players = teamByPlayer.keys.mapNotNull { Bukkit.getPlayer(it) }
+
+        if (phase.startMessage.isNotBlank()) {
+            val msg = Component.text(phase.startMessage, NamedTextColor.YELLOW)
+            players.forEach { it.sendMessage(msg) }
+        }
+
+        if (phase.startTitle.isNotBlank() || phase.startSubtitle.isNotBlank()) {
+            val title = if (phase.startTitle.isNotBlank()) {
+                Component.text(phase.startTitle, NamedTextColor.YELLOW)
+            } else {
+                Component.empty()
+            }
+            val subtitle = if (phase.startSubtitle.isNotBlank()) {
+                Component.text(phase.startSubtitle, NamedTextColor.WHITE)
+            } else {
+                Component.empty()
+            }
+            players.forEach { p ->
+                p.showTitle(
+                    Title.title(
+                        title,
+                        subtitle,
+                        Title.Times.times(Duration.ofMillis(150), Duration.ofMillis(900), Duration.ofMillis(250))
+                    )
+                )
+            }
+        }
+
+        if (phase.breakWallsOnStart) {
+            players.forEach { p ->
+                try {
+                    p.playSound(p.location, Sound.BLOCK_BEACON_ACTIVATE, 1.0f, 1.0f)
+                } catch (_: Exception) {
+                }
+            }
+        }
+    }
+
+    private fun updateBossBar() {
+        val phase = getCurrentPhase() ?: return
+
+        val endAt = currentPhaseEndSecond
+        val rem = (endAt - elapsedSeconds).coerceAtLeast(0)
+        val denom = (endAt - currentPhaseStartSecond).coerceAtLeast(1)
+        val progress = (rem.toDouble() / denom.toDouble()).coerceIn(0.0, 1.0)
+
+        bossBar?.progress = progress
+        bossBar?.setTitle("TheWalls • ${phase.name}: ${formatSeconds(rem)}")
     }
 
     private fun calculateWinnerByKills(): TheWallsTeam? {
@@ -690,30 +707,6 @@ class TheWallsGame(
         val m = s / 60
         val r = s % 60
         return "%02d:%02d".format(m, r)
-    }
-
-    private fun switchToOpenPhase() {
-        if (phase != TheWallsPhase.BUILD) return
-        phase = TheWallsPhase.OPEN
-
-        startWallBreakTask()
-
-        bossBar?.color = BarColor.YELLOW
-
-        val players = teamByPlayer.keys.mapNotNull { Bukkit.getPlayer(it) }
-        players.forEach { p ->
-            p.showTitle(
-                Title.title(
-                    Component.text("Стены разрушены!", NamedTextColor.YELLOW),
-                    Component.text("Центр открыт", NamedTextColor.WHITE),
-                    Title.Times.times(Duration.ofMillis(150), Duration.ofMillis(900), Duration.ofMillis(250))
-                )
-            )
-            try {
-                p.playSound(p.location, Sound.BLOCK_BEACON_ACTIVATE, 1.0f, 1.0f)
-            } catch (_: Exception) {
-            }
-        }
     }
 
     private fun startWallBreakTask() {
@@ -859,76 +852,17 @@ class TheWallsGame(
         }
     }
 
-    fun getGuardianLives(team: TheWallsTeam): Int = guardianLivesLeft.getOrElse(team.index) { 0 }
-
-    fun isRespawnEnabled(team: TheWallsTeam): Boolean = respawnEnabled.getOrElse(team.index) { true }
-
-    fun isRespawnEnabled(playerId: UUID): Boolean {
-        val team = teamByPlayer[playerId] ?: return true
-        return isRespawnEnabled(team)
-    }
-
-    fun applyRespawnRules(player: Player) {
-        val team = teamByPlayer[player.uniqueId] ?: return
-        if (isRespawnEnabled(team)) return
-
-        player.gameMode = GameMode.SPECTATOR
-        player.sendMessage(Component.text("Респавн отключён: ваш хранитель уничтожен", NamedTextColor.RED))
-    }
-
-    fun checkForVictory() {
-        if (state != GameState.RUNNING) return
-
-        val aliveTeams = hashSetOf<TheWallsTeam>()
-        for ((uuid, team) in teamByPlayer) {
-            val p = Bukkit.getPlayer(uuid) ?: continue
-            if (p.world.name != worldName) continue
-            if (p.gameMode == GameMode.SPECTATOR && !respawnWaiting.contains(uuid)) continue
-            aliveTeams.add(team)
-        }
-
-        if (aliveTeams.size == 1) {
-            endGame(aliveTeams.first(), reason = "last_team", immediate = false)
-        } else if (aliveTeams.isEmpty()) {
-            endGame(null, reason = "no_alive", immediate = true)
-        }
-    }
-
     private fun spawnAllGuardians() {
-        var spawned = 0
         for (team in TheWallsTeam.entries) {
             if (guardianLivesLeft.getOrElse(team.index) { 0 } <= 0) continue
-            if (spawnGuardian(team)) {
-                spawned++
-            }
-        }
-
-        if (spawned <= 0) {
-            TheWallsPlugin.instance.logger.warning(
-                "[TheWalls] Guardians enabled but none spawned in world='$worldName'. Check arena guardian-spawns/team-spawns"
-            )
+            spawnGuardian(team)
         }
     }
 
-    private fun spawnGuardian(team: TheWallsTeam): Boolean {
-        val w = Bukkit.getWorld(worldName)
-        if (w == null) {
-            TheWallsPlugin.instance.logger.warning("[TheWalls] Cannot spawn guardian for ${team.name}: world '$worldName' is not loaded")
-            return false
-        }
-
-        val sp = guardianSpawns[team] ?: teamSpawns[team]
-        if (sp == null) {
-            TheWallsPlugin.instance.logger.warning("[TheWalls] Cannot spawn guardian for ${team.name}: no guardian-spawns and no team-spawns fallback")
-            return false
-        }
-        val loc = Location(w, sp.x, sp.y, sp.z, sp.yaw, sp.pitch)
-
-        try {
-            val chunk = loc.chunk
-            if (!chunk.isLoaded) chunk.load()
-        } catch (_: Exception) {
-        }
+    private fun spawnGuardian(team: TheWallsTeam) {
+        val w = Bukkit.getWorld(worldName) ?: return
+        val sp = guardianSpawns[team] ?: teamSpawns[team] ?: return
+        val loc = sp.toLocation(worldName)
 
         // Cleanup previous entity if exists
         guardianEntityIds[team.index]?.let { oldId ->
@@ -939,36 +873,32 @@ class TheWallsGame(
         }
 
         val nameRaw = ChatColor.translateAlternateColorCodes('&', TheWallsSettings.guardianName)
-        val entity = try {
-            w.spawn(loc, Illusioner::class.java) { e ->
-                e.persistentDataContainer.set(TheWallsKeys.guardianTeamKey, PersistentDataType.STRING, team.name)
-                e.customName = "${team.color}$nameRaw"
-                e.isCustomNameVisible = true
-                e.removeWhenFarAway = false
-                e.isPersistent = true
-                e.canPickupItems = false
+        val entity = w.spawn(loc, Illusioner::class.java) { e ->
+            e.persistentDataContainer.set(TheWallsKeys.guardianTeamKey, PersistentDataType.STRING, team.name)
+            e.customName = "${team.color}$nameRaw"
+            e.isCustomNameVisible = true
+            e.removeWhenFarAway = false
+            e.isPersistent = true
+            e.canPickupItems = false
 
-                val max = TheWallsSettings.guardianMaxHealth
-                e.getAttribute(Attribute.MAX_HEALTH)?.baseValue = max
-                try {
-                    e.health = max
-                } catch (_: Exception) {
-                }
+            val max = TheWallsSettings.guardianMaxHealth
+            e.getAttribute(Attribute.MAX_HEALTH)?.baseValue = max
+            try {
+                e.health = max
+            } catch (_: Exception) {
             }
-        } catch (e: Exception) {
-            TheWallsPlugin.instance.logger.warning("[TheWalls] Failed to spawn guardian for ${team.name}: ${e.message}")
-            return false
         }
 
         guardianEntityIds[team.index] = entity.uniqueId
-
-        return true
     }
 
     fun handleGuardianKilled(team: TheWallsTeam, killer: Player?) {
         guardianEntityIds[team.index] = null
         val left = (guardianLivesLeft.getOrElse(team.index) { 0 } - 1).coerceAtLeast(0)
         guardianLivesLeft[team.index] = left
+        if (left <= 0) {
+            respawnEnabled[team.index] = false
+        }
 
         val players = teamByPlayer.keys.mapNotNull { Bukkit.getPlayer(it) }
         val killerText = if (killer != null) {
@@ -997,20 +927,99 @@ class TheWallsGame(
             }, (respawnSeconds.coerceAtLeast(0) * 20L)).taskId
             tasks[key] = taskId
         } else {
-            respawnEnabled[team.index] = false
-
-            val teamMsg = Component.text("Ваш хранитель уничтожен — респавн отключён!", NamedTextColor.RED)
-            teamByPlayer.entries
-                .filter { it.value == team }
-                .mapNotNull { Bukkit.getPlayer(it.key) }
-                .forEach { it.sendMessage(teamMsg) }
-
             val msg = Component.text("Хранитель команды ", NamedTextColor.RED)
                 .append(Component.text(team.displayName, team.adventureColor()))
                 .append(Component.text(" уничтожен!", NamedTextColor.RED))
                 .append(killerText)
             players.forEach { it.sendMessage(msg) }
         }
+    }
+
+    fun adminForceOpenPhase() {
+        if (state != GameState.RUNNING) return
+        if (phases.isEmpty()) return
+
+        val openIdx = phases.indexOfFirst { !it.wallsLocked && !it.centerLocked }
+        val targetIdx = when {
+            openIdx >= 0 -> openIdx
+            phases.size >= 2 -> 1
+            else -> phases.lastIndex
+        }
+
+        if (targetIdx <= currentPhaseIndex) {
+            currentPhaseEndSecond = 0
+            ensurePhaseUpToDate(announce = true)
+            return
+        }
+
+        currentPhaseIndex = targetIdx
+        currentPhaseStartSecond = elapsedSeconds
+        currentPhaseEndSecond = 0
+        buildPhaseEndOverride = elapsedSeconds
+        ensurePhaseUpToDate(announce = true)
+    }
+
+    fun adminSetBuildSeconds(seconds: Int) {
+        if (state != GameState.RUNNING) return
+        buildPhaseEndOverride = elapsedSeconds + seconds.coerceAtLeast(0)
+        if (currentPhaseIndex == 0) {
+            currentPhaseEndSecond = 0
+        }
+    }
+
+    fun adminSetTotalSeconds(seconds: Int) {
+        if (state != GameState.RUNNING) return
+        matchEndSecond = elapsedSeconds + seconds.coerceAtLeast(0)
+        totalRemainingSeconds = (matchEndSecond - elapsedSeconds).coerceAtLeast(0)
+    }
+
+    fun adminKillGuardian(team: TheWallsTeam) {
+        if (state != GameState.RUNNING) return
+        guardianEntityIds[team.index]?.let { id ->
+            try {
+                Bukkit.getEntity(id)?.remove()
+            } catch (_: Throwable) {
+            }
+        }
+        guardianEntityIds[team.index] = null
+        handleGuardianKilled(team, killer = null)
+    }
+
+    fun adminRespawnGuardian(team: TheWallsTeam): Boolean {
+        if (state != GameState.RUNNING) return false
+        if (!TheWallsSettings.guardiansEnabled) return false
+        if (guardianLivesLeft.getOrElse(team.index) { 0 } <= 0) return false
+        spawnGuardian(team)
+        return true
+    }
+
+    fun adminSetGuardianLives(team: TheWallsTeam, lives: Int) {
+        val v = lives.coerceAtLeast(0)
+        guardianLivesLeft[team.index] = v
+        respawnEnabled[team.index] = v > 0
+
+        if (state != GameState.RUNNING) return
+        if (!TheWallsSettings.guardiansEnabled) return
+
+        if (v <= 0) {
+            guardianEntityIds[team.index]?.let { id ->
+                try {
+                    Bukkit.getEntity(id)?.remove()
+                } catch (_: Throwable) {
+                }
+            }
+            guardianEntityIds[team.index] = null
+        } else {
+            spawnGuardian(team)
+        }
+    }
+
+    fun adminSetRespawnEnabled(team: TheWallsTeam, enabled: Boolean) {
+        respawnEnabled[team.index] = enabled
+    }
+
+    fun adminEndMatch(winnerTeam: TheWallsTeam) {
+        endGame(winnerTeam = winnerTeam, reason = "admin", immediate = false)
     }
 
     private fun despawnAllGuardians() {

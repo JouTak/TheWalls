@@ -55,6 +55,7 @@ object TheWallsSettings {
         val templateWorld: String,
         val poolSize: Int,
         val teamSpawns: Map<TheWallsTeam, SpawnPoint>,
+        val teamSectors: Map<TheWallsTeam, CuboidRegion>,
         val centerPoint: SpawnPoint,
         val centerRadius: Double,
         val walls: List<CuboidRegion>,
@@ -64,6 +65,11 @@ object TheWallsSettings {
     lateinit var lobbyWorld: String
         private set
     lateinit var lobbySpawn: SpawnPoint
+        private set
+
+    // Safe fallback template world name for code paths that need a template world.
+    // Initialized to lobbyWorld, then overridden to the first arena template (if any).
+    lateinit var defaultTemplateWorld: String
         private set
 
     var playersPerTeam: Int = 4
@@ -164,6 +170,9 @@ object TheWallsSettings {
 
         lobbyWorld = cfg.getString("lobby.world", "lobby") ?: "lobby"
         lobbySpawn = parseSpawn(cfg.get("lobby.spawn") ?: "0, 65, 0, 0, 0")
+
+        // Default fallback for older code paths; may be overridden after arenas are parsed.
+        defaultTemplateWorld = lobbyWorld
 
         playersPerTeam = cfg.getInt("players-per-team", 4).coerceAtLeast(1)
         countdownSeconds = cfg.getInt("match.countdown-seconds", 10).coerceAtLeast(0)
@@ -273,16 +282,34 @@ object TheWallsSettings {
             val wallsRaw = sec["walls"] as? List<*> ?: emptyList<Any>()
             val walls = wallsRaw.mapNotNull { parseCuboid(it) }.map { it.normalized() }
 
+            val sectorsRaw = sec["team-sectors"] as? Map<*, *> ?: emptyMap<Any, Any>()
+            val teamSectors = mutableMapOf<TheWallsTeam, CuboidRegion>()
+            for (team in TheWallsTeam.entries) {
+                val value = sectorsRaw.entries.firstOrNull {
+                    it.key?.toString()?.equals(team.name, ignoreCase = true) == true
+                }?.value
+                if (value != null) {
+                    val r = parseCuboid(value)?.normalized()
+                    if (r != null) teamSectors[team] = r
+                }
+            }
+
             arenas += ArenaConfig(
                 id = id,
                 templateWorld = templateWorld,
                 poolSize = poolSize,
                 teamSpawns = teamSpawns,
+                teamSectors = teamSectors,
                 centerPoint = centerPoint,
                 centerRadius = centerRadius,
                 walls = walls,
                 guardianSpawns = guardianSpawns
             )
+        }
+
+        // Prefer a real arena template world as a fallback if available.
+        if (arenas.isNotEmpty()) {
+            defaultTemplateWorld = arenas.first().templateWorld
         }
 
         if (arenas.isEmpty()) {
@@ -296,6 +323,15 @@ object TheWallsSettings {
                 plugin.logger.warning(
                     "[TheWalls] Arena '${arena.id}' has missing team spawns: ${missingSpawns.joinToString { it.name }}"
                 )
+            }
+
+            if (matchBuildSeconds > 0) {
+                val missingSectors = TheWallsTeam.entries.filter { it !in arena.teamSectors }
+                if (missingSectors.isNotEmpty()) {
+                    plugin.logger.warning(
+                        "[TheWalls] Arena '${arena.id}' has missing team-sectors for: ${missingSectors.joinToString { it.name }} (sector restriction will be disabled for these teams)"
+                    )
+                }
             }
 
             if (matchBuildSeconds > 0 && arena.walls.isEmpty()) {

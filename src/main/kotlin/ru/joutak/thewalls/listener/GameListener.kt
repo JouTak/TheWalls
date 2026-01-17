@@ -1,8 +1,6 @@
 package ru.joutak.thewalls.listener
 
 import org.bukkit.entity.Player
-import org.bukkit.Bukkit
-import ru.joutak.thewalls.TheWallsPlugin
 import org.bukkit.event.EventHandler
 import org.bukkit.event.Listener
 import org.bukkit.event.block.BlockBreakEvent
@@ -17,7 +15,6 @@ import net.kyori.adventure.text.format.NamedTextColor
 import ru.joutak.thewalls.config.TheWallsSettings
 import ru.joutak.thewalls.game.GameState
 import ru.joutak.thewalls.game.TheWallsGameManager
-import ru.joutak.thewalls.game.TheWallsPhase
 
 object GameListener : Listener {
 
@@ -41,7 +38,7 @@ object GameListener : Listener {
             return
         }
 
-        if (game.phase == TheWallsPhase.BUILD && game.isInWallRegion(event.block.location)) {
+        if (game.isWallsLockedNow() && game.isInWallRegion(event.block.location)) {
             event.isCancelled = true
             player.sendActionBar(Component.text("Нельзя строить в стенах до их разрушения", NamedTextColor.YELLOW))
         }
@@ -67,7 +64,7 @@ object GameListener : Listener {
             return
         }
 
-        if (game.phase == TheWallsPhase.BUILD && game.isInWallRegion(event.block.location)) {
+        if (game.isWallsLockedNow() && game.isInWallRegion(event.block.location)) {
             event.isCancelled = true
             player.sendActionBar(Component.text("Нельзя ломать стены до их разрушения", NamedTextColor.YELLOW))
         }
@@ -108,7 +105,7 @@ object GameListener : Listener {
                     event.isCancelled = true
                     return
                 }
-                if (!TheWallsSettings.pvpInBuildEnabled && game.phase == TheWallsPhase.BUILD) {
+                if (!game.isPvpEnabledNow()) {
                     event.isCancelled = true
                     return
                 }
@@ -159,7 +156,7 @@ object GameListener : Listener {
             return
         }
 
-        if (!TheWallsSettings.pvpInBuildEnabled && game.phase == TheWallsPhase.BUILD) {
+        if (!game.isPvpEnabledNow()) {
             event.isCancelled = true
         }
     }
@@ -185,7 +182,6 @@ object GameListener : Listener {
 
         if (victim.world.name != game.worldName) return
         game.handleDeath(victim)
-        game.startRespawnFlow(victim)
     }
 
     @EventHandler
@@ -193,20 +189,7 @@ object GameListener : Listener {
         val player = event.player
         val game = TheWallsGameManager.getGame(player.uniqueId) ?: return
 
-        // If we use delayed respawn with spectator-waiting, prevent Bukkit from teleporting to team spawn immediately.
-        if (TheWallsSettings.respawnDelaySeconds > 0 && game.state == GameState.RUNNING) {
-            event.respawnLocation = player.location
-        } else {
-            val loc = game.getRespawnLocation(player.uniqueId) ?: return
-            event.respawnLocation = loc
-        }
-
-        // Apply spectator mode if respawn is disabled for this team.
-        game.applyRespawnRules(player)
-
-        // Victory check after respawn state updates.
-        Bukkit.getScheduler().runTaskLater(TheWallsPlugin.instance, Runnable {
-            game.checkForVictory()
-        }, 2L)
+        val loc = game.getRespawnLocation(player.uniqueId) ?: return
+        event.respawnLocation = loc
     }
 }

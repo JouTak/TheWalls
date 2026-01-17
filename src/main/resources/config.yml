@@ -7,6 +7,9 @@ lobby:
 players-per-team: 4
 
 match:
+  # Сценарий фаз (подготовка/открытие/и т.д.) настраивается в отдельном файле:
+  # plugins/TheWalls/scenario-config.yml
+  # Поля total-seconds/build-seconds здесь используются как fallback и для первичного генератора сценария.
   countdown-seconds: 10
   # Backward-compatible: duration-seconds is treated as total-seconds.
   duration-seconds: 900
@@ -14,9 +17,6 @@ match:
   total-seconds: 900
   # Time until walls are opened (phase BUILD -> OPEN).
   build-seconds: 600
-  # Difficulty for match world. NOTE: if guardians.enabled=true, PEACEFUL will be forced to NORMAL.
-  # Values: PEACEFUL, EASY, NORMAL, HARD
-  difficulty: NORMAL
   walls:
     # How many wall blocks to process per server tick when opening walls.
     # Higher values -> faster opening, but more load per tick.
@@ -53,14 +53,6 @@ guardians:
   max-health: 40.0
   # Имя хранителя. Можно использовать &-цвета.
   name: "Хранитель"
-
-respawn:
-  # Сколько секунд игрок проводит в режиме наблюдателя после смерти, прежде чем возродиться.
-  # 0 = мгновенный респавн (без таймера).
-  delay-seconds: 5
-  # Переводить ли игрока в spectator во время ожидания респавна.
-  spectator-mode: true
-
 
 # Список арен. template-world — мир-шаблон (будет клонироваться в новый мир на матч).
 # team-spawns — точки спавна команд внутри арены.

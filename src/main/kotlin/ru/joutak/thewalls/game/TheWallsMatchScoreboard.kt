@@ -6,7 +6,6 @@ import org.bukkit.entity.Player
 import org.bukkit.scoreboard.DisplaySlot
 import org.bukkit.scoreboard.Objective
 import org.bukkit.scoreboard.Scoreboard
-import ru.joutak.thewalls.config.TheWallsSettings
 
 @Suppress("DEPRECATION")
 class TheWallsMatchScoreboard(private val game: TheWallsGame) {
@@ -54,27 +53,19 @@ class TheWallsMatchScoreboard(private val game: TheWallsGame) {
         lines += "&7Арена: &f${game.arenaId}"
         lines += "&8 "
 
-        val phase = game.phase
-        if (phase == TheWallsPhase.BUILD) {
-            lines += "&eФаза: &fBUILD"
-            lines += "&eСтены через: &f${game.formatSeconds(game.buildRemainingSeconds)}"
-        } else {
-            lines += "&eФаза: &fOPEN"
-            lines += "&eДо конца: &f${game.formatSeconds(game.totalRemainingSeconds)}"
+        lines += "&eФаза: &f${game.getCurrentPhaseName()}"
+        val phaseRem = game.getCurrentPhaseRemainingSeconds()
+        if (phaseRem != null) {
+            lines += "&eДо конца фазы: &f${game.formatSeconds(phaseRem)}"
         }
+        lines += "&eДо конца матча: &f${game.formatSeconds(game.totalRemainingSeconds)}"
 
         lines += "&8  "
+
         // Simple team status: total kills so far.
         TheWallsTeam.entries.forEach { team ->
             val k = game.getTeamKills(team)
-            if (TheWallsSettings.guardiansEnabled) {
-                val lives = game.getGuardianLives(team)
-                val livesText = if (lives <= 0) "&c✖" else "&c❤$lives"
-                val respawnText = if (game.isRespawnEnabled(team)) "&a♻" else "&c☠"
-                lines += "${team.color}${team.displayName} &7- &f$k &7| $livesText &7| $respawnText"
-            } else {
-                lines += "${team.color}${team.displayName} &7- &f$k"
-            }
+            lines += "${team.color}${team.displayName} &7- &f$k"
         }
 
         return if (lines.size <= 15) lines else lines.take(15)

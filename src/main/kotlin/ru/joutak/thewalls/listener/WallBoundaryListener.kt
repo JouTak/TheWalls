@@ -2,7 +2,6 @@ package ru.joutak.thewalls.listener
 
 import net.kyori.adventure.text.Component
 import net.kyori.adventure.text.format.NamedTextColor
-import org.bukkit.GameMode
 import org.bukkit.event.EventHandler
 import org.bukkit.event.EventPriority
 import org.bukkit.event.Listener
@@ -10,7 +9,6 @@ import org.bukkit.event.player.PlayerMoveEvent
 import org.bukkit.event.player.PlayerTeleportEvent
 import ru.joutak.thewalls.game.GameState
 import ru.joutak.thewalls.game.TheWallsGameManager
-import ru.joutak.thewalls.game.TheWallsPhase
 
 object WallBoundaryListener : Listener {
 
@@ -20,9 +18,8 @@ object WallBoundaryListener : Listener {
         val game = TheWallsGameManager.getGame(player.uniqueId) ?: return
 
         if (player.world.name != game.worldName) return
-        if (player.gameMode == GameMode.SPECTATOR) return
         if (game.state != GameState.RUNNING) return
-        if (game.phase != TheWallsPhase.BUILD) return
+        if (!game.isWallsLockedNow()) return
 
         val to = event.to ?: return
         val from = event.from
@@ -48,9 +45,8 @@ object WallBoundaryListener : Listener {
         val game = TheWallsGameManager.getGame(player.uniqueId) ?: return
 
         if (player.world.name != game.worldName) return
-        if (player.gameMode == GameMode.SPECTATOR) return
         if (game.state != GameState.RUNNING) return
-        if (game.phase != TheWallsPhase.BUILD) return
+        if (!game.isWallsLockedNow()) return
 
         // Do not interfere with plugin-controlled teleports (respawn/spawn setup).
         if (event.cause == PlayerTeleportEvent.TeleportCause.PLUGIN) return
