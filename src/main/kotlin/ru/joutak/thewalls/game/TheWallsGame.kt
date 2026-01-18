@@ -20,6 +20,12 @@ import org.bukkit.boss.BossBar
 import org.bukkit.entity.Player
 import ru.joutak.minigames.domain.GameInstance
 import ru.joutak.minigames.managers.MatchmakingManager
+import ru.joutak.minigames.MiniGamesAPI
+import ru.joutak.minigames.results.model.MatchContext
+import ru.joutak.minigames.results.model.MatchResult
+import ru.joutak.minigames.results.model.Metric
+import ru.joutak.minigames.results.model.PlayerResult
+import ru.joutak.minigames.results.model.TeamResult
 import ru.joutak.thewalls.TheWallsPlugin
 import ru.joutak.thewalls.config.ScenarioConfig
 import ru.joutak.thewalls.config.TheWallsSettings
@@ -52,6 +58,15 @@ class TheWallsGame(
     private val tasks = mutableMapOf<String, Int>()
     private var bossBar: BossBar? = null
     private var matchScoreboard: TheWallsMatchScoreboard? = null
+
+    // Results (shared DB via MiniGamesAPI)
+    private val matchId: UUID = UUID.randomUUID()
+    private var startedAtMs: Long = 0L
+    private var resultsSent: Boolean = false
+    private val playerTeamsSnapshot = mutableMapOf<UUID, TheWallsTeam>()
+    private val playerNamesSnapshot = mutableMapOf<UUID, String>()
+    private val playerJoinedAtMs = mutableMapOf<UUID, Long>()
+    private val playerLeftAtMs = mutableMapOf<UUID, Long>()
 
     private var phases: List<GamePhase> = emptyList()
     private var currentPhaseIndex: Int = 0
@@ -98,6 +113,9 @@ class TheWallsGame(
 
     fun getCurrentPhaseName(): String = getCurrentPhase()?.name ?: "—"
 
+    // Alias for checklist naming.
+    fun getPhaseRemaining(): Int = getCurrentPhaseRemainingSeconds() ?: 0
+
     fun getCurrentPhaseRemainingSeconds(): Int? {
         val phase = getCurrentPhase() ?: return null
         val endAt = currentPhaseEndSecond
@@ -109,9 +127,6 @@ class TheWallsGame(
     fun getCurrentPhaseIndex(): Int = currentPhaseIndex
 
     fun getScenarioPhases(): List<GamePhase> = phases.toList()
-
-    fun isCenterLockedNow(): Boolean = state == GameState.RUNNING && (getCurrentPhase()?.centerLocked == true)
-
 
     // Compatibility: legacy two-phase view used by admin command
     val phase: TheWallsPhase
@@ -141,7 +156,9 @@ class TheWallsGame(
 
     fun isWallsLockedNow(): Boolean = state == GameState.RUNNING && (getCurrentPhase()?.wallsLocked == true)
 
-    fun isPvpEnabledNow(): Boolean = getCurrentPhase()?.pvpEnabled ?: true
+    fun isCenterLockedNow(): Boolean = state == GameState.RUNNING && (getCurrentPhase()?.centerLocked == true) && centerRadiusSq > 0
+
+    fun isPvpEnabledNow(): Boolean = state == GameState.RUNNING && (getCurrentPhase()?.pvpEnabled ?: true)
 
     fun start() {
         if (state != GameState.WAITING) return
@@ -281,19 +298,24 @@ class TheWallsGame(
     }
 
     private fun setPermanentSpectator(player: Player) {
+        setPermanentSpectatorInternal(player, notify = true)
+        tryEndIfOnlyOneTeamLeft()
+    }
+
+    private fun setPermanentSpectatorInternal(player: Player, notify: Boolean) {
         val playerId = player.uniqueId
         eliminated.add(playerId)
         spectators.add(playerId)
-
-        tryEndIfOnlyOneTeamLeft()
 
         Bukkit.getScheduler().runTask(TheWallsPlugin.instance, Runnable {
             if (state != GameState.RUNNING) return@Runnable
             if (!isParticipant(playerId)) return@Runnable
             player.gameMode = GameMode.SPECTATOR
-            player.sendMessage(
-                Component.text("Вы выбыли из матча (без возрождения)", NamedTextColor.RED)
-            )
+            if (notify) {
+                player.sendMessage(
+                    Component.text("Вы выбыли из матча (без возрождения)", NamedTextColor.RED)
+                )
+            }
         })
     }
 
@@ -314,6 +336,21 @@ class TheWallsGame(
 
     private fun respawnTaskKey(playerId: UUID): String = "player_respawn_$playerId"
 
+    private fun eliminateTemporarySpectatorsOfTeam(team: TheWallsTeam) {
+        for ((uuid, t) in teamByPlayer) {
+            if (t != team) continue
+            if (!spectators.contains(uuid)) continue
+            if (eliminated.contains(uuid)) continue
+
+            cancelTask(respawnTaskKey(uuid))
+            eliminated.add(uuid)
+            spectators.add(uuid)
+
+            val p = Bukkit.getPlayer(uuid) ?: continue
+            setPermanentSpectatorInternal(p, notify = true)
+        }
+    }
+
     fun getRespawnLocation(playerId: UUID): Location? {
         val team = teamByPlayer[playerId] ?: return null
         val sp = teamSpawns[team] ?: return null
@@ -323,6 +360,7 @@ class TheWallsGame(
     fun getTeamKills(team: TheWallsTeam): Int = teamKills.getOrElse(team.index) { 0 }
 
     fun isCenterBlocked(loc: Location): Boolean {
+        if (!isCenterLockedNow()) return false
         if (centerRadiusSq <= 0) return false
         val dx = loc.x - centerX
         val dz = loc.z - centerZ
@@ -457,6 +495,8 @@ class TheWallsGame(
             matchScoreboard?.removePlayer(it)
         }
 
+        playerLeftAtMs.putIfAbsent(uuid, System.currentTimeMillis())
+
         cancelTask(respawnTaskKey(uuid))
         pendingDeath.remove(uuid)
         spectators.remove(uuid)
@@ -464,7 +504,6 @@ class TheWallsGame(
 
         teamByPlayer.remove(uuid)
         lastDamager.remove(uuid)
-        killsByPlayer.remove(uuid)
         centerWarnUntil.remove(uuid)
         wallWarnUntil.remove(uuid)
         sectorWarnUntil.remove(uuid)
@@ -571,6 +610,17 @@ class TheWallsGame(
     private fun beginRunning() {
         if (state != GameState.COUNTDOWN) return
         state = GameState.RUNNING
+
+        val nowMs = System.currentTimeMillis()
+        if (startedAtMs <= 0L) startedAtMs = nowMs
+        for ((uuid, team) in teamByPlayer) {
+            playerTeamsSnapshot.putIfAbsent(uuid, team)
+            playerJoinedAtMs.putIfAbsent(uuid, startedAtMs)
+            val name = Bukkit.getPlayer(uuid)?.name ?: Bukkit.getOfflinePlayer(uuid).name
+            if (!name.isNullOrBlank()) {
+                playerNamesSnapshot[uuid] = name
+            }
+        }
 
         phases = ScenarioConfig.phases.toList().ifEmpty { defaultScenarioPhases() }
 
@@ -858,6 +908,137 @@ class TheWallsGame(
         return bestTeam
     }
 
+
+    private fun sendMatchResultsIfNeeded(winnerTeam: TheWallsTeam?, reason: String) {
+        if (resultsSent) return
+        if (startedAtMs <= 0L) return
+        if (reason == "shutdown" || reason == "no_players") return
+
+        if (playerTeamsSnapshot.isEmpty()) return
+
+        resultsSent = true
+
+        val endedAtMs = System.currentTimeMillis()
+
+        val allTeams = playerTeamsSnapshot.values.toSet().sortedBy { it.index }
+        if (allTeams.isEmpty()) return
+
+        val placementByTeamIdx = computePlacements(allTeams, winnerTeam)
+
+        val teams = allTeams.map { team ->
+            val kills = teamKills.getOrElse(team.index) { 0 }
+            val aliveEnd = countAlivePlayers(team)
+            val respawnEnabled = if (isRespawnEnabled(team)) 1 else 0
+            val guardianLivesEnd = guardianLivesLeft.getOrElse(team.index) { 0 }
+            val totalPlayers = playerTeamsSnapshot.values.count { it == team }
+
+            val metrics = mutableListOf(
+                Metric.int("kills", kills.toLong()),
+                Metric.int("alive_end", aliveEnd.toLong()),
+                Metric.int("respawn_enabled", respawnEnabled.toLong()),
+                Metric.int("guardian_lives_end", guardianLivesEnd.toLong()),
+                Metric.int("players", totalPlayers.toLong()),
+                Metric.text("end_reason", reason),
+                Metric.int("phase_index_end", currentPhaseIndex.toLong()),
+                Metric.text("phase_name_end", getCurrentPhaseName())
+            )
+
+            val teamKey = instance.tournamentTeamKeys.getOrNull(team.index)
+            if (!teamKey.isNullOrBlank()) {
+                metrics.add(Metric.text("team_key", teamKey))
+            }
+
+            TeamResult(
+                teamId = team.index + 1,
+                placement = placementByTeamIdx[team.index],
+                isWinner = winnerTeam != null && team == winnerTeam,
+                score = null,
+                metrics = metrics
+            )
+        }
+
+        val allPlayers = (playerTeamsSnapshot.keys + killsByPlayer.keys).toSet()
+        val players = allPlayers.map { uuid ->
+            val team = playerTeamsSnapshot[uuid]
+
+            val name = playerNamesSnapshot[uuid]
+                ?: Bukkit.getPlayer(uuid)?.name
+                ?: Bukkit.getOfflinePlayer(uuid).name
+
+            val kills = killsByPlayer[uuid] ?: 0
+            val leftAt = playerLeftAtMs[uuid]
+
+            val metrics = mutableListOf(
+                Metric.int("kills", kills.toLong()),
+                Metric.int("left", if (leftAt != null) 1L else 0L),
+                Metric.int("spectator_end", if (spectators.contains(uuid)) 1L else 0L),
+                Metric.int("eliminated_end", if (eliminated.contains(uuid)) 1L else 0L),
+            )
+
+            PlayerResult(
+                playerUuid = uuid,
+                playerName = name,
+                teamId = team?.index?.plus(1),
+                isWinner = winnerTeam != null && team == winnerTeam,
+                joinedAtMs = playerJoinedAtMs[uuid],
+                leftAtMs = leftAt,
+                metrics = metrics
+            )
+        }
+
+        val context = buildMatchContext()
+
+        val result = MatchResult(
+            matchId = matchId,
+            startedAtMs = startedAtMs,
+            endedAtMs = endedAtMs,
+            mapKey = arenaId,
+            context = context,
+            teams = teams,
+            players = players
+        )
+
+        // Safe when results are disabled; do not block the main thread.
+        MiniGamesAPI.recordMatchResult(result)
+    }
+
+    private fun buildMatchContext(): MatchContext? {
+        val eventId = metaString("eventId", "event_id", "event-id") ?: return null
+        val stage = metaString("stage", "stage_id", "stage-id") ?: return null
+        val groupKey = metaString("groupKey", "group_key", "group-key")
+        val ruleSet = metaString("ruleSet", "rule_set", "rule-set")
+        return MatchContext(eventId = eventId, stage = stage, groupKey = groupKey, ruleSet = ruleSet)
+    }
+
+    private fun metaString(vararg keys: String): String? {
+        for (k in keys) {
+            val v = instance.config.meta[k]
+            if (v is String && v.isNotBlank()) return v
+        }
+        return null
+    }
+
+    private fun computePlacements(allTeams: List<TheWallsTeam>, winnerTeam: TheWallsTeam?): Map<Int, Int> {
+        val sorted = allTeams.sortedWith(
+            compareByDescending<TheWallsTeam> { if (isRespawnEnabled(it)) 1 else 0 }
+                .thenByDescending { countAlivePlayers(it) }
+                .thenByDescending { teamKills.getOrElse(it.index) { 0 } }
+                .thenBy { it.index }
+        )
+
+        val ordered = if (winnerTeam != null && sorted.contains(winnerTeam)) {
+            listOf(winnerTeam) + sorted.filter { it != winnerTeam }
+        } else {
+            sorted
+        }
+
+        val placementByTeam = mutableMapOf<Int, Int>()
+        ordered.forEachIndexed { idx, team ->
+            placementByTeam[team.index] = idx + 1
+        }
+        return placementByTeam
+    }
+
     private fun endGame(winnerTeam: TheWallsTeam?, reason: String, immediate: Boolean) {
         if (state == GameState.ENDING || state == GameState.CLEANUP) return
 
@@ -875,6 +1056,8 @@ class TheWallsGame(
         matchScoreboard = null
 
         val shouldAnnounce = reason != "shutdown" && reason != "no_players"
+
+        sendMatchResultsIfNeeded(winnerTeam, reason)
         if (shouldAnnounce) {
             val winnerText = if (winnerTeam == null) {
                 Component.text("Победитель не определён", NamedTextColor.GRAY)
@@ -1125,17 +1308,7 @@ class TheWallsGame(
         if (left <= 0) {
             respawnEnabled[team.index] = false
             // If the team lost respawn, all currently dead (temporary spectators) must be eliminated immediately.
-            for ((uuid, t) in teamByPlayer) {
-                if (t != team) continue
-                if (spectators.contains(uuid) && !eliminated.contains(uuid)) {
-                    cancelTask(respawnTaskKey(uuid))
-                    eliminated.add(uuid)
-                    val p = Bukkit.getPlayer(uuid)
-                    if (p != null) {
-                        setPermanentSpectator(p)
-                    }
-                }
-            }
+            eliminateTemporarySpectatorsOfTeam(team)
             tryEndIfOnlyOneTeamLeft()
         }
 
@@ -1184,6 +1357,8 @@ class TheWallsGame(
             currentPhaseEndSecond = 0
             buildPhaseEndOverride = null
             ensurePhaseUpToDate(announce = true)
+            updateBossBar()
+            matchScoreboard?.update()
             return true
         }
 
@@ -1192,6 +1367,9 @@ class TheWallsGame(
         currentPhaseEndSecond = 0
         buildPhaseEndOverride = null
         ensurePhaseUpToDate(announce = true)
+
+        updateBossBar()
+        matchScoreboard?.update()
         return true
     }
 
@@ -1211,6 +1389,8 @@ class TheWallsGame(
         if (targetIdx <= currentPhaseIndex) {
             currentPhaseEndSecond = 0
             ensurePhaseUpToDate(announce = true)
+            updateBossBar()
+            matchScoreboard?.update()
             return
         }
 
@@ -1219,13 +1399,20 @@ class TheWallsGame(
         currentPhaseEndSecond = 0
         buildPhaseEndOverride = elapsedSeconds
         ensurePhaseUpToDate(announce = true)
+        updateBossBar()
+        matchScoreboard?.update()
     }
 
     fun adminSetBuildSeconds(seconds: Int) {
         if (state != GameState.RUNNING) return
         buildPhaseEndOverride = elapsedSeconds + seconds.coerceAtLeast(0)
+
+        // Only meaningful while we are in the first phase.
         if (currentPhaseIndex == 0) {
             currentPhaseEndSecond = 0
+            ensurePhaseUpToDate(announce = true)
+            updateBossBar()
+            matchScoreboard?.update()
         }
     }
 
@@ -1233,6 +1420,14 @@ class TheWallsGame(
         if (state != GameState.RUNNING) return
         matchEndSecond = elapsedSeconds + seconds.coerceAtLeast(0)
         totalRemainingSeconds = (matchEndSecond - elapsedSeconds).coerceAtLeast(0)
+
+        if (matchEndSecond <= elapsedSeconds) {
+            endByTimeLimit()
+            return
+        }
+
+        updateBossBar()
+        matchScoreboard?.update()
     }
 
     fun adminKillGuardian(team: TheWallsTeam) {
@@ -1261,23 +1456,34 @@ class TheWallsGame(
         respawnEnabled[team.index] = v > 0
 
         if (state != GameState.RUNNING) return
-        if (!TheWallsSettings.guardiansEnabled) return
-
         if (v <= 0) {
-            guardianEntityIds[team.index]?.let { id ->
-                try {
-                    Bukkit.getEntity(id)?.remove()
-                } catch (_: Throwable) {
+            if (TheWallsSettings.guardiansEnabled) {
+                guardianEntityIds[team.index]?.let { id ->
+                    try {
+                        Bukkit.getEntity(id)?.remove()
+                    } catch (_: Throwable) {
+                    }
                 }
+                guardianEntityIds[team.index] = null
             }
-            guardianEntityIds[team.index] = null
-        } else {
+
+            eliminateTemporarySpectatorsOfTeam(team)
+            tryEndIfOnlyOneTeamLeft()
+            return
+        }
+
+        if (TheWallsSettings.guardiansEnabled) {
             spawnGuardian(team)
         }
     }
 
     fun adminSetRespawnEnabled(team: TheWallsTeam, enabled: Boolean) {
         respawnEnabled[team.index] = enabled
+
+        if (!enabled && state == GameState.RUNNING) {
+            eliminateTemporarySpectatorsOfTeam(team)
+            tryEndIfOnlyOneTeamLeft()
+        }
     }
 
     fun adminEndMatch(winnerTeam: TheWallsTeam) {

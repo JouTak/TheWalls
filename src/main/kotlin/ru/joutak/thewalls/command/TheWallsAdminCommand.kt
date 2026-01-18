@@ -33,94 +33,26 @@ object TheWallsAdminCommand {
                     Commands.literal("list")
                         .executes { ctx ->
                             val game = resolveGame(ctx.source) ?: return@executes 1
-                            if (game.state != GameState.RUNNING) {
-                                ctx.source.sender.sendMessage(prefixed("Матч ещё не запущен"))
-                                return@executes 1
-                            }
-
-                            val phases = game.getScenarioPhases()
-                            if (phases.isEmpty()) {
-                                ctx.source.sender.sendMessage(prefixed("Сценарий пуст"))
-                                return@executes 1
-                            }
-
-                            ctx.source.sender.sendMessage(prefixed("Фазы сценария:"))
-
-                            val cur = game.getCurrentPhaseIndex()
-                            phases.forEachIndexed { idx, ph ->
-                                val marker = if (idx == cur) "»" else "•"
-                                val dur = if (ph.endAtSecond != null) {
-                                    "endAt=${ph.endAtSecond}s"
-                                } else {
-                                    "dur=${ph.durationSeconds}s"
-                                }
-                                val flags = buildString {
-                                    append(if (ph.pvpEnabled) "pvp=ON" else "pvp=OFF")
-                                    append(" ")
-                                    append(if (ph.wallsLocked) "walls=LOCK" else "walls=OPEN")
-                                    append(" ")
-                                    append(if (ph.centerLocked) "center=LOCK" else "center=OPEN")
-                                    if (ph.breakWallsOnStart) {
-                                        append(" breakWalls")
-                                    }
-                                }
-
-                                ctx.source.sender.sendMessage(
-                                    Component.text("$marker #${idx + 1} ", NamedTextColor.DARK_GRAY)
-                                        .append(Component.text(ph.name, NamedTextColor.YELLOW))
-                                        .append(Component.text(" ($dur) ", NamedTextColor.GRAY))
-                                        .append(Component.text(flags, NamedTextColor.GRAY))
-                                )
-                            }
+                            sendPhaseList(ctx.source, game)
                             1
                         }
                 )
                 .then(
                     Commands.literal("set")
                         .then(
-                            Commands.argument("index", IntegerArgumentType.integer(1, 1000))
+                            Commands.argument("index", IntegerArgumentType.integer(0, 100))
                                 .executes { ctx ->
                                     val game = resolveGame(ctx.source) ?: return@executes 1
+                                    val index = IntegerArgumentType.getInteger(ctx, "index")
                                     if (game.state != GameState.RUNNING) {
                                         ctx.source.sender.sendMessage(prefixed("Матч ещё не запущен"))
                                         return@executes 1
                                     }
-
-                                    val idx1 = IntegerArgumentType.getInteger(ctx, "index")
-                                    val ok = game.adminSetPhaseIndex(idx1 - 1)
-                                    if (!ok) {
-                                        ctx.source.sender.sendMessage(prefixed("Нет фазы #$idx1"))
+                                    if (!game.adminSetPhaseIndex(index)) {
+                                        ctx.source.sender.sendMessage(prefixed("Некорректный индекс фазы: $index"))
                                         return@executes 1
                                     }
-
-                                    ctx.source.sender.sendMessage(prefixed("Фаза установлена: ${game.getCurrentPhaseName()}"))
-                                    1
-                                }
-                        )
-                        .then(
-                            Commands.argument("name", StringArgumentType.greedyString())
-                                .executes { ctx ->
-                                    val game = resolveGame(ctx.source) ?: return@executes 1
-                                    if (game.state != GameState.RUNNING) {
-                                        ctx.source.sender.sendMessage(prefixed("Матч ещё не запущен"))
-                                        return@executes 1
-                                    }
-
-                                    val raw = StringArgumentType.getString(ctx, "name").trim()
-                                    if (raw.isBlank()) {
-                                        ctx.source.sender.sendMessage(prefixed("Укажите имя фазы"))
-                                        return@executes 1
-                                    }
-
-                                    val phases = game.getScenarioPhases()
-                                    val targetIdx = phases.indexOfFirst { it.name.equals(raw, ignoreCase = true) }
-                                    if (targetIdx < 0) {
-                                        ctx.source.sender.sendMessage(prefixed("Фаза не найдена: $raw"))
-                                        return@executes 1
-                                    }
-
-                                    game.adminSetPhaseIndex(targetIdx)
-                                    ctx.source.sender.sendMessage(prefixed("Фаза установлена: ${game.getCurrentPhaseName()}"))
+                                    ctx.source.sender.sendMessage(prefixed("Фаза установлена: [$index] ${game.getCurrentPhaseName()}"))
                                     1
                                 }
                         )
@@ -133,18 +65,14 @@ object TheWallsAdminCommand {
                                 ctx.source.sender.sendMessage(prefixed("Матч ещё не запущен"))
                                 return@executes 1
                             }
-
-                            val ok = game.adminNextPhase()
-                            if (!ok) {
-                                ctx.source.sender.sendMessage(prefixed("Следующей фазы нет"))
+                            if (!game.adminNextPhase()) {
+                                ctx.source.sender.sendMessage(prefixed("Дальше фаз нет"))
                                 return@executes 1
                             }
-
-                            ctx.source.sender.sendMessage(prefixed("Фаза: ${game.getCurrentPhaseName()}"))
+                            ctx.source.sender.sendMessage(prefixed("Фаза переключена: [${game.getCurrentPhaseIndex()}] ${game.getCurrentPhaseName()}"))
                             1
                         }
                 )
-                // Legacy commands (kept for compatibility)
                 .then(
                     Commands.literal("open")
                         .executes { ctx ->
@@ -420,7 +348,50 @@ object TheWallsAdminCommand {
     }
 
 
-    private fun prefixed(text: String): Component =
+    
+    private fun sendPhaseList(source: CommandSourceStack, game: TheWallsGame) {
+        val s = source.sender
+        val phases = game.getScenarioPhases()
+
+        if (phases.isEmpty()) {
+            s.sendMessage(prefixed("Сценарий не задан (пустой список фаз)"))
+            return
+        }
+
+        val current = game.getCurrentPhaseIndex()
+        val remaining = game.getCurrentPhaseRemainingSeconds()
+
+        s.sendMessage(
+            Component.text("[TheWalls] ", NamedTextColor.YELLOW)
+                .append(Component.text("Сценарий: ${phases.size} фаз", NamedTextColor.GRAY))
+        )
+
+        phases.forEachIndexed { idx, phase ->
+            val isCurrent = game.state == GameState.RUNNING && idx == current
+            val mark = if (isCurrent) "»" else "•"
+            val flags = buildString {
+                append(if (phase.pvpEnabled) "pvp=ON" else "pvp=OFF")
+                append(", ")
+                append(if (phase.wallsLocked) "walls=LOCK" else "walls=OPEN")
+                append(", ")
+                append(if (phase.centerLocked) "center=LOCK" else "center=OPEN")
+            }
+
+            val dur = game.formatSeconds(phase.durationSeconds.toInt())
+            val base = "$mark [$idx] ${phase.name} ($dur) | $flags"
+
+            val line = if (isCurrent && remaining != null) {
+                Component.text(base, NamedTextColor.WHITE)
+                    .append(Component.text(" | rem=${game.formatSeconds(remaining)}", NamedTextColor.GRAY))
+            } else {
+                Component.text(base, if (isCurrent) NamedTextColor.WHITE else NamedTextColor.GRAY)
+            }
+
+            s.sendMessage(line)
+        }
+    }
+
+private fun prefixed(text: String): Component =
         Component.text("[TheWalls] ", NamedTextColor.YELLOW)
             .append(Component.text(text, NamedTextColor.GRAY))
 }
