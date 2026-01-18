@@ -106,6 +106,13 @@ class TheWallsGame(
         return rem
     }
 
+    fun getCurrentPhaseIndex(): Int = currentPhaseIndex
+
+    fun getScenarioPhases(): List<GamePhase> = phases.toList()
+
+    fun isCenterLockedNow(): Boolean = state == GameState.RUNNING && (getCurrentPhase()?.centerLocked == true)
+
+
     // Compatibility: legacy two-phase view used by admin command
     val phase: TheWallsPhase
         get() {
@@ -1166,6 +1173,29 @@ class TheWallsGame(
             players.forEach { it.sendMessage(msg) }
         }
     }
+
+    
+    fun adminSetPhaseIndex(targetIndex: Int): Boolean {
+        if (state != GameState.RUNNING) return false
+        if (phases.isEmpty()) return false
+        if (targetIndex < 0 || targetIndex >= phases.size) return false
+
+        if (targetIndex == currentPhaseIndex) {
+            currentPhaseEndSecond = 0
+            buildPhaseEndOverride = null
+            ensurePhaseUpToDate(announce = true)
+            return true
+        }
+
+        currentPhaseIndex = targetIndex
+        currentPhaseStartSecond = elapsedSeconds
+        currentPhaseEndSecond = 0
+        buildPhaseEndOverride = null
+        ensurePhaseUpToDate(announce = true)
+        return true
+    }
+
+    fun adminNextPhase(): Boolean = adminSetPhaseIndex(currentPhaseIndex + 1)
 
     fun adminForceOpenPhase() {
         if (state != GameState.RUNNING) return
