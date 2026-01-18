@@ -1127,6 +1127,78 @@ class TheWallsGame(
         return placementByTeam
     }
 
+    private fun reasonLabel(reason: String): String {
+        return when (reason) {
+            "time" -> "Время вышло"
+            "last_team" -> "Осталась 1 команда"
+            "all_eliminated" -> "Все команды выбыли"
+            "shutdown" -> "Выключение"
+            "no_players" -> "Нет игроков"
+            else -> reason
+        }
+    }
+
+    private fun buildEndSummaryLines(winnerTeam: TheWallsTeam?, reason: String): List<Component> {
+        val lines = ArrayList<Component>()
+
+        val teamsInMatch = playerTeamsSnapshot.values.toSet().sortedBy { it.index }
+        if (teamsInMatch.isEmpty()) return lines
+
+        val placementByTeamIdx = computePlacements(teamsInMatch, winnerTeam)
+        val orderedTeams = teamsInMatch.sortedBy { placementByTeamIdx[it.index] ?: 999 }
+
+        lines.add(Component.text("— Итоги TheWalls —", NamedTextColor.YELLOW))
+        lines.add(
+            Component.text("Причина: ", NamedTextColor.GRAY)
+                .append(Component.text(reasonLabel(reason), NamedTextColor.WHITE))
+        )
+
+        if (winnerTeam != null) {
+            lines.add(
+                Component.text("Победили: ", NamedTextColor.GRAY)
+                    .append(Component.text(winnerTeam.displayName, winnerTeam.adventureColor()))
+            )
+        } else {
+            lines.add(Component.text("Победитель не определён", NamedTextColor.GRAY))
+        }
+
+        lines.add(Component.text("Рейтинг команд:", NamedTextColor.GRAY))
+        for (team in orderedTeams) {
+            val placement = placementByTeamIdx[team.index] ?: continue
+            val kills = teamKills.getOrElse(team.index) { 0 }
+            val alive = countAlivePlayers(team)
+            val total = teamByPlayer.values.count { it == team }
+            val respawn = if (isRespawnEnabled(team)) "ON" else "OFF"
+            val guardianLives = guardianLivesLeft.getOrElse(team.index) { 0 }
+
+            val line = Component.text("#${placement} ", NamedTextColor.DARK_GRAY)
+                .append(Component.text(team.displayName, team.adventureColor()))
+                .append(Component.text(" — ", NamedTextColor.DARK_GRAY))
+                .append(Component.text("K:$kills", NamedTextColor.WHITE))
+                .append(Component.text("  A:$alive/$total", NamedTextColor.WHITE))
+                .append(Component.text("  R:$respawn", NamedTextColor.WHITE))
+
+            lines.add(
+                if (TheWallsSettings.guardiansEnabled) {
+                    line.append(Component.text("  G:$guardianLives", NamedTextColor.WHITE))
+                } else {
+                    line
+                }
+            )
+        }
+
+        if (reason == "time") {
+            lines.add(
+                Component.text(
+                    "Тайбрейк: respawn-status → alive-count → kills",
+                    NamedTextColor.DARK_GRAY
+                )
+            )
+        }
+
+        return lines
+    }
+
     private fun endGame(winnerTeam: TheWallsTeam?, reason: String, immediate: Boolean) {
         if (state == GameState.ENDING || state == GameState.CLEANUP) return
 
@@ -1146,7 +1218,35 @@ class TheWallsGame(
         val shouldAnnounce = reason != "shutdown" && reason != "no_players"
 
         sendMatchResultsIfNeeded(winnerTeam, reason)
+
         if (shouldAnnounce) {
+            val matchPlayers = playerTeamsSnapshot.keys.mapNotNull { Bukkit.getPlayer(it) }
+
+            // In-match detailed summary (not global spam).
+            val summaryLines = buildEndSummaryLines(winnerTeam, reason)
+            if (summaryLines.isNotEmpty()) {
+                matchPlayers.forEach { p ->
+                    summaryLines.forEach { line -> p.sendMessage(line) }
+                }
+            }
+
+            // End title for match participants.
+            val titleMain = Component.text("Матч завершён", NamedTextColor.YELLOW)
+            val subtitle = if (winnerTeam != null) {
+                Component.text(winnerTeam.displayName, winnerTeam.adventureColor())
+            } else {
+                Component.text("Без победителя", NamedTextColor.GRAY)
+            }
+            matchPlayers.forEach { p ->
+                p.showTitle(
+                    Title.title(
+                        titleMain,
+                        subtitle,
+                        Title.Times.times(Duration.ofMillis(150), Duration.ofMillis(1600), Duration.ofMillis(250))
+                    )
+                )
+            }
+
             val winnerText = if (winnerTeam == null) {
                 Component.text("Победитель не определён", NamedTextColor.GRAY)
             } else {
