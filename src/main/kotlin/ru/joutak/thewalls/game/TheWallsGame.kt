@@ -154,6 +154,10 @@ class TheWallsGame(
 
     fun getGuardianLives(team: TheWallsTeam): Int = guardianLivesLeft.getOrElse(team.index) { 0 }
 
+    fun getAliveCount(team: TheWallsTeam): Int = countAlivePlayers(team)
+    fun getStillInMatchCount(team: TheWallsTeam): Int = countStillInMatch(team)
+    fun getTeamPlayerCount(team: TheWallsTeam): Int = teamByPlayer.values.count { it == team }
+
     fun isWallsLockedNow(): Boolean = state == GameState.RUNNING && (getCurrentPhase()?.wallsLocked == true)
 
     fun isCenterLockedNow(): Boolean = state == GameState.RUNNING && (getCurrentPhase()?.centerLocked == true) && centerRadiusSq > 0
@@ -235,6 +239,7 @@ class TheWallsGame(
                 }
 
                 setTemporarySpectator(player)
+                startRespawnCountdown(playerId, delay)
                 scheduleDelayedRespawn(playerId, delay)
             }
         }
@@ -246,6 +251,7 @@ class TheWallsGame(
 
         val taskId = Bukkit.getScheduler().runTaskLater(TheWallsPlugin.instance, Runnable {
             if (state != GameState.RUNNING) return@Runnable
+            cancelTask(respawnBarTaskKey(playerId))
             if (eliminated.contains(playerId)) return@Runnable
 
             val player = Bukkit.getPlayer(playerId) ?: return@Runnable
@@ -284,6 +290,8 @@ class TheWallsGame(
 
     private fun setTemporarySpectator(player: Player) {
         val playerId = player.uniqueId
+        cancelTask(respawnTaskKey(playerId))
+        cancelTask(respawnBarTaskKey(playerId))
         eliminated.remove(playerId)
         spectators.add(playerId)
 
@@ -304,6 +312,8 @@ class TheWallsGame(
 
     private fun setPermanentSpectatorInternal(player: Player, notify: Boolean) {
         val playerId = player.uniqueId
+        cancelTask(respawnTaskKey(playerId))
+        cancelTask(respawnBarTaskKey(playerId))
         eliminated.add(playerId)
         spectators.add(playerId)
 
@@ -321,6 +331,8 @@ class TheWallsGame(
 
     private fun clearSpectator(player: Player) {
         val playerId = player.uniqueId
+        cancelTask(respawnTaskKey(playerId))
+        cancelTask(respawnBarTaskKey(playerId))
         spectators.remove(playerId)
         if (!eliminated.contains(playerId)) {
             // do not force survival if already eliminated
@@ -335,6 +347,49 @@ class TheWallsGame(
     }
 
     private fun respawnTaskKey(playerId: UUID): String = "player_respawn_$playerId"
+    private fun respawnBarTaskKey(playerId: UUID): String = "player_respawn_bar_$playerId"
+
+    private fun startRespawnCountdown(playerId: UUID, delaySeconds: Int) {
+        val key = respawnBarTaskKey(playerId)
+        cancelTask(key)
+        if (delaySeconds <= 0) return
+
+        // Immediate hint
+        Bukkit.getPlayer(playerId)?.let { p ->
+            if (p.world.name == worldName && spectators.contains(playerId) && !eliminated.contains(playerId)) {
+                p.sendActionBar(Component.text("Возрождение через ${delaySeconds}с", NamedTextColor.YELLOW))
+            }
+        }
+
+        var remaining = delaySeconds - 1
+        val taskId = Bukkit.getScheduler().runTaskTimer(TheWallsPlugin.instance, Runnable {
+            if (state != GameState.RUNNING) {
+                cancelTask(key)
+                return@Runnable
+            }
+            if (eliminated.contains(playerId) || !spectators.contains(playerId)) {
+                cancelTask(key)
+                return@Runnable
+            }
+            val player = Bukkit.getPlayer(playerId) ?: run {
+                cancelTask(key)
+                return@Runnable
+            }
+            if (player.world.name != worldName) {
+                cancelTask(key)
+                return@Runnable
+            }
+            if (remaining < 0) {
+                cancelTask(key)
+                return@Runnable
+            }
+            player.sendActionBar(Component.text("Возрождение через ${remaining}с", NamedTextColor.YELLOW))
+            remaining--
+        }, 20L, 20L).taskId
+
+        tasks[key] = taskId
+    }
+
 
     private fun eliminateTemporarySpectatorsOfTeam(team: TheWallsTeam) {
         for ((uuid, t) in teamByPlayer) {
@@ -343,8 +398,7 @@ class TheWallsGame(
             if (eliminated.contains(uuid)) continue
 
             cancelTask(respawnTaskKey(uuid))
-            eliminated.add(uuid)
-            spectators.add(uuid)
+            cancelTask(respawnBarTaskKey(uuid))
 
             val p = Bukkit.getPlayer(uuid) ?: continue
             setPermanentSpectatorInternal(p, notify = true)
@@ -498,6 +552,7 @@ class TheWallsGame(
         playerLeftAtMs.putIfAbsent(uuid, System.currentTimeMillis())
 
         cancelTask(respawnTaskKey(uuid))
+        cancelTask(respawnBarTaskKey(uuid))
         pendingDeath.remove(uuid)
         spectators.remove(uuid)
         eliminated.remove(uuid)

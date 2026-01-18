@@ -6,6 +6,7 @@ import org.bukkit.entity.Player
 import org.bukkit.scoreboard.DisplaySlot
 import org.bukkit.scoreboard.Objective
 import org.bukkit.scoreboard.Scoreboard
+import ru.joutak.thewalls.config.TheWallsSettings
 
 @Suppress("DEPRECATION")
 class TheWallsMatchScoreboard(private val game: TheWallsGame) {
@@ -60,12 +61,20 @@ class TheWallsMatchScoreboard(private val game: TheWallsGame) {
         }
         lines += "&eДо конца матча: &f${game.formatSeconds(game.totalRemainingSeconds)}"
 
-        lines += "&8  "
-
-        // Simple team status: total kills so far.
+        lines += "&8  "        // Team status
         TheWallsTeam.entries.forEach { team ->
             val k = game.getTeamKills(team)
-            lines += "${team.color}${team.displayName} &7- &f$k"
+            val alive = game.getAliveCount(team)
+            val total = game.getTeamPlayerCount(team)
+            val respawn = if (game.isRespawnEnabled(team)) "&aON" else "&cOFF"
+
+            val base = "${team.color}${team.displayName} &7K:&f$k &7A:&f$alive/$total &7R:$respawn"
+            if (TheWallsSettings.guardiansEnabled) {
+                val lives = game.getGuardianLives(team)
+                lines += base + " &7G:&f$lives"
+            } else {
+                lines += base
+            }
         }
 
         return if (lines.size <= 15) lines else lines.take(15)
