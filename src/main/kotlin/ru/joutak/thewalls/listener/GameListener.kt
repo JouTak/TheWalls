@@ -30,6 +30,12 @@ object GameListener : Listener {
             return
         }
 
+        if (game.isSpectator(player.uniqueId)) {
+            event.isCancelled = true
+            player.sendActionBar(Component.text("Вы наблюдатель", NamedTextColor.GRAY))
+            return
+        }
+
         val type = event.block.type
         if (TheWallsSettings.protectedBlocks.contains(type)) {
             event.isCancelled = true
@@ -53,6 +59,12 @@ object GameListener : Listener {
 
         if (game.state != GameState.RUNNING || !game.isParticipant(player.uniqueId)) {
             event.isCancelled = true
+            return
+        }
+
+        if (game.isSpectator(player.uniqueId)) {
+            event.isCancelled = true
+            player.sendActionBar(Component.text("Вы наблюдатель", NamedTextColor.GRAY))
             return
         }
 
@@ -83,6 +95,11 @@ object GameListener : Listener {
                 return
             }
 
+            if (game.isSpectator(victim.uniqueId)) {
+                event.isCancelled = true
+                return
+            }
+
             val damagerPlayer = when (val d = event.damager) {
                 is Player -> d
                 else -> {
@@ -93,6 +110,11 @@ object GameListener : Listener {
             } ?: return
 
             if (!game.isParticipant(damagerPlayer.uniqueId)) {
+                event.isCancelled = true
+                return
+            }
+
+            if (game.isSpectator(damagerPlayer.uniqueId)) {
                 event.isCancelled = true
                 return
             }
@@ -148,6 +170,11 @@ object GameListener : Listener {
             return
         }
 
+        if (game.isSpectator(damagerPlayer.uniqueId)) {
+            event.isCancelled = true
+            return
+        }
+
         val damagerTeam = game.getTeam(damagerPlayer.uniqueId)
         if (damagerTeam == guardianTeam) {
             event.isCancelled = true
@@ -176,5 +203,7 @@ object GameListener : Listener {
 
         val loc = game.getRespawnLocation(player.uniqueId) ?: return
         event.respawnLocation = loc
+
+        game.handleRespawn(player)
     }
 }

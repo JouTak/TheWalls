@@ -19,6 +19,7 @@ object WallBoundaryListener : Listener {
 
         if (player.world.name != game.worldName) return
         if (game.state != GameState.RUNNING) return
+        if (game.isSpectator(player.uniqueId)) return
         if (!game.isWallsLockedNow()) return
 
         val to = event.to ?: return
@@ -46,6 +47,7 @@ object WallBoundaryListener : Listener {
 
         if (player.world.name != game.worldName) return
         if (game.state != GameState.RUNNING) return
+        if (game.isSpectator(player.uniqueId)) return
         if (!game.isWallsLockedNow()) return
 
         // Do not interfere with plugin-controlled teleports (respawn/spawn setup).

@@ -21,7 +21,9 @@ object SectorBoundaryListener : Listener {
         if (from.blockX == to.blockX && from.blockY == to.blockY && from.blockZ == to.blockZ) return
 
         val game = TheWallsGameManager.getGame(player.uniqueId) ?: return
+        if (player.world.name != game.worldName) return
         if (game.state != GameState.RUNNING) return
+        if (game.isSpectator(player.uniqueId)) return
         if (!game.areSectorsLockedNow()) return
 
         val team = game.getTeam(player.uniqueId) ?: return

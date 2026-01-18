@@ -40,6 +40,11 @@ class TheWallsGame(
     private val guardianSpawns: Map<TheWallsTeam, TheWallsSettings.SpawnPoint>,
     private val wallBreakBlocksPerTick: Int
 ) {
+
+    private enum class DeathPlan {
+        TEMP_RESPAWN,
+        ELIMINATED
+    }
     @Volatile
     var state: GameState = GameState.WAITING
         private set
@@ -56,6 +61,10 @@ class TheWallsGame(
 
     val teamByPlayer = mutableMapOf<UUID, TheWallsTeam>()
     private val respawnEnabled = BooleanArray(TheWallsTeam.entries.size) { true }
+
+    private val spectators = HashSet<UUID>()
+    private val eliminated = HashSet<UUID>()
+    private val pendingDeath = HashMap<UUID, DeathPlan>()
 
     private val killsByPlayer = mutableMapOf<UUID, Int>()
     private val teamKills = IntArray(TheWallsTeam.entries.size) { 0 }
@@ -137,6 +146,10 @@ class TheWallsGame(
 
     fun isParticipant(uuid: UUID): Boolean = teamByPlayer.containsKey(uuid)
 
+    fun isSpectator(uuid: UUID): Boolean = spectators.contains(uuid)
+
+    fun isEliminated(uuid: UUID): Boolean = eliminated.contains(uuid)
+
     fun getTeam(uuid: UUID): TheWallsTeam? = teamByPlayer[uuid]
 
     fun recordDamager(victim: UUID, damager: UUID) {
@@ -147,13 +160,152 @@ class TheWallsGame(
     fun handleDeath(victim: Player) {
         if (state != GameState.RUNNING) return
         val victimId = victim.uniqueId
-        val (damagerId, timeMs) = lastDamager[victimId] ?: return
-        if (System.currentTimeMillis() - timeMs > 10_000L) return
 
-        val damagerTeam = teamByPlayer[damagerId] ?: return
-        killsByPlayer[damagerId] = (killsByPlayer[damagerId] ?: 0) + 1
-        teamKills[damagerTeam.index]++
+        // Kill attribution (best-effort)
+        val damagerEntry = lastDamager[victimId]
+        if (damagerEntry != null) {
+            val damagerId = damagerEntry.first
+            val timeMs = damagerEntry.second
+            if (System.currentTimeMillis() - timeMs <= 10_000L) {
+                val damagerTeam = teamByPlayer[damagerId]
+                if (damagerTeam != null) {
+                    killsByPlayer[damagerId] = (killsByPlayer[damagerId] ?: 0) + 1
+                    teamKills[damagerTeam.index]++
+                }
+            }
+        }
+
+        // Respawn / spectator plan
+        val team = teamByPlayer[victimId] ?: return
+        val plan = if (eliminated.contains(victimId) || !isRespawnEnabled(team)) {
+            DeathPlan.ELIMINATED
+        } else {
+            DeathPlan.TEMP_RESPAWN
+        }
+        pendingDeath[victimId] = plan
     }
+
+    fun handleRespawn(player: Player) {
+        if (state != GameState.RUNNING) return
+        val playerId = player.uniqueId
+        val plan = pendingDeath.remove(playerId) ?: return
+
+        when (plan) {
+            DeathPlan.ELIMINATED -> {
+                setPermanentSpectator(player)
+            }
+
+            DeathPlan.TEMP_RESPAWN -> {
+                // If respawn is disabled now (guardian destroyed during death screen) -> eliminate.
+                val team = teamByPlayer[playerId]
+                if (team == null || !isRespawnEnabled(team)) {
+                    setPermanentSpectator(player)
+                    return
+                }
+
+                val delay = TheWallsSettings.respawnDelaySeconds.coerceAtLeast(0)
+                val useSpectator = TheWallsSettings.respawnSpectatorMode && delay > 0
+                if (!useSpectator) {
+                    clearSpectator(player)
+                    return
+                }
+
+                setTemporarySpectator(player)
+                scheduleDelayedRespawn(playerId, delay)
+            }
+        }
+    }
+
+    private fun scheduleDelayedRespawn(playerId: UUID, delaySeconds: Int) {
+        val key = respawnTaskKey(playerId)
+        cancelTask(key)
+
+        val taskId = Bukkit.getScheduler().runTaskLater(TheWallsPlugin.instance, Runnable {
+            if (state != GameState.RUNNING) return@Runnable
+            if (eliminated.contains(playerId)) return@Runnable
+
+            val player = Bukkit.getPlayer(playerId) ?: return@Runnable
+            val team = teamByPlayer[playerId] ?: return@Runnable
+
+            if (!isRespawnEnabled(team)) {
+                setPermanentSpectator(player)
+                return@Runnable
+            }
+
+            // Back to survival
+            spectators.remove(playerId)
+            player.gameMode = GameMode.SURVIVAL
+            player.isFlying = false
+            player.allowFlight = false
+
+            getTeamSpawnLocation(team)?.let {
+                player.teleport(it)
+            }
+
+            val maxHealth = player.getAttribute(Attribute.MAX_HEALTH)?.value ?: 20.0
+            player.health = maxHealth
+            player.foodLevel = 20
+            player.saturation = 20f
+            player.fireTicks = 0
+
+            player.sendMessage(
+                Component.text("Вы возродились!", NamedTextColor.GREEN)
+            )
+
+            tasks.remove(key)
+        }, delaySeconds.coerceAtLeast(0) * 20L).taskId
+
+        tasks[key] = taskId
+    }
+
+    private fun setTemporarySpectator(player: Player) {
+        val playerId = player.uniqueId
+        eliminated.remove(playerId)
+        spectators.add(playerId)
+
+        Bukkit.getScheduler().runTask(TheWallsPlugin.instance, Runnable {
+            if (state != GameState.RUNNING) return@Runnable
+            if (!isParticipant(playerId)) return@Runnable
+            player.gameMode = GameMode.SPECTATOR
+            player.sendMessage(
+                Component.text("Вы погибли. Возрождение через ${TheWallsSettings.respawnDelaySeconds}с", NamedTextColor.YELLOW)
+            )
+        })
+    }
+
+    private fun setPermanentSpectator(player: Player) {
+        val playerId = player.uniqueId
+        eliminated.add(playerId)
+        spectators.add(playerId)
+
+        tryEndIfOnlyOneTeamLeft()
+
+        Bukkit.getScheduler().runTask(TheWallsPlugin.instance, Runnable {
+            if (state != GameState.RUNNING) return@Runnable
+            if (!isParticipant(playerId)) return@Runnable
+            player.gameMode = GameMode.SPECTATOR
+            player.sendMessage(
+                Component.text("Вы выбыли из матча (без возрождения)", NamedTextColor.RED)
+            )
+        })
+    }
+
+    private fun clearSpectator(player: Player) {
+        val playerId = player.uniqueId
+        spectators.remove(playerId)
+        if (!eliminated.contains(playerId)) {
+            // do not force survival if already eliminated
+            Bukkit.getScheduler().runTask(TheWallsPlugin.instance, Runnable {
+                if (state != GameState.RUNNING) return@Runnable
+                if (!isParticipant(playerId)) return@Runnable
+                if (player.gameMode == GameMode.SPECTATOR) {
+                    player.gameMode = GameMode.SURVIVAL
+                }
+            })
+        }
+    }
+
+    private fun respawnTaskKey(playerId: UUID): String = "player_respawn_$playerId"
 
     fun getRespawnLocation(playerId: UUID): Location? {
         val team = teamByPlayer[playerId] ?: return null
@@ -297,14 +449,23 @@ class TheWallsGame(
             bossBar?.removePlayer(it)
             matchScoreboard?.removePlayer(it)
         }
+
+        cancelTask(respawnTaskKey(uuid))
+        pendingDeath.remove(uuid)
+        spectators.remove(uuid)
+        eliminated.remove(uuid)
+
         teamByPlayer.remove(uuid)
         lastDamager.remove(uuid)
         killsByPlayer.remove(uuid)
         centerWarnUntil.remove(uuid)
         wallWarnUntil.remove(uuid)
+        sectorWarnUntil.remove(uuid)
 
         // Keep instance participant set correct (player may have quit).
         instance.removeActivePlayer(uuid)
+
+        tryEndIfOnlyOneTeamLeft()
     }
 
     fun shutdown(reason: String) {
@@ -318,7 +479,7 @@ class TheWallsGame(
     }
 
     fun endByTimeLimit() {
-        val winner = calculateWinnerByKills()
+        val winner = calculateWinnerByTiebreak()
         endGame(winnerTeam = winner, reason = "time", immediate = false)
     }
 
@@ -619,16 +780,74 @@ class TheWallsGame(
         bossBar?.setTitle("TheWalls • ${phase.name}: ${formatSeconds(rem)}")
     }
 
-    private fun calculateWinnerByKills(): TheWallsTeam? {
-        var bestTeam: TheWallsTeam? = null
-        var bestKills = -1
+    private fun countAlivePlayers(team: TheWallsTeam): Int {
+        // Alive = currently not in spectator mode (temporary death does NOT count as alive).
+        var c = 0
+        for ((uuid, t) in teamByPlayer) {
+            if (t != team) continue
+            if (!spectators.contains(uuid)) c++
+        }
+        return c
+    }
+
+    private fun countStillInMatch(team: TheWallsTeam): Int {
+        // Still in match = not permanently eliminated (includes temporary death / waiting respawn).
+        var c = 0
+        for ((uuid, t) in teamByPlayer) {
+            if (t != team) continue
+            if (!eliminated.contains(uuid)) c++
+        }
+        return c
+    }
+
+    private fun tryEndIfOnlyOneTeamLeft() {
+        if (state != GameState.RUNNING) return
+        if (state == GameState.ENDING || state == GameState.CLEANUP) return
+
+        val aliveTeams = ArrayList<TheWallsTeam>()
         for (team in TheWallsTeam.entries) {
-            val k = teamKills.getOrElse(team.index) { 0 }
-            if (k > bestKills) {
-                bestKills = k
+            if (countStillInMatch(team) > 0) aliveTeams.add(team)
+        }
+
+        when (aliveTeams.size) {
+            0 -> endGame(winnerTeam = null, reason = "all_eliminated", immediate = false)
+            1 -> endGame(winnerTeam = aliveTeams[0], reason = "last_team", immediate = false)
+        }
+    }
+
+    private fun calculateWinnerByTiebreak(): TheWallsTeam? {
+        // Tiebreak (high priority first):
+        // 1) respawn-status (enabled)
+        // 2) alive-count (currently alive)
+        // 3) kills
+        var bestTeam: TheWallsTeam? = null
+        var bestRespawn = -1
+        var bestAlive = -1
+        var bestKills = -1
+
+        for (team in TheWallsTeam.entries) {
+            val hasPlayers = teamByPlayer.values.any { it == team }
+            if (!hasPlayers) continue
+
+            val respawnScore = if (isRespawnEnabled(team)) 1 else 0
+            val alive = countAlivePlayers(team)
+            val kills = teamKills.getOrElse(team.index) { 0 }
+
+            val better = when {
+                respawnScore != bestRespawn -> respawnScore > bestRespawn
+                alive != bestAlive -> alive > bestAlive
+                kills != bestKills -> kills > bestKills
+                else -> (bestTeam == null || team.index < bestTeam!!.index)
+            }
+
+            if (better) {
+                bestRespawn = respawnScore
+                bestAlive = alive
+                bestKills = kills
                 bestTeam = team
             }
         }
+
         return bestTeam
     }
 
@@ -898,6 +1117,19 @@ class TheWallsGame(
         guardianLivesLeft[team.index] = left
         if (left <= 0) {
             respawnEnabled[team.index] = false
+            // If the team lost respawn, all currently dead (temporary spectators) must be eliminated immediately.
+            for ((uuid, t) in teamByPlayer) {
+                if (t != team) continue
+                if (spectators.contains(uuid) && !eliminated.contains(uuid)) {
+                    cancelTask(respawnTaskKey(uuid))
+                    eliminated.add(uuid)
+                    val p = Bukkit.getPlayer(uuid)
+                    if (p != null) {
+                        setPermanentSpectator(p)
+                    }
+                }
+            }
+            tryEndIfOnlyOneTeamLeft()
         }
 
         val players = teamByPlayer.keys.mapNotNull { Bukkit.getPlayer(it) }

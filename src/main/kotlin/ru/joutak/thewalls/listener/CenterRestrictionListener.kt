@@ -18,6 +18,7 @@ object CenterRestrictionListener : Listener {
 
         if (player.world.name != game.worldName) return
         if (game.state != GameState.RUNNING) return
+        if (game.isSpectator(player.uniqueId)) return
 
         val to = event.to ?: return
         val from = event.from
