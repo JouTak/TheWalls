@@ -81,6 +81,16 @@ class TheWallsGame(
     private val eliminated = HashSet<UUID>()
     private val pendingDeath = HashMap<UUID, DeathPlan>()
 
+    // "Last chance" (like in CreakyWars): once the guardian is fully destroyed and respawn is disabled,
+    // players still get exactly one final respawn.
+    private val lastChanceRespawn = HashSet<UUID>()
+
+    private fun hasLastChanceRespawn(playerId: UUID): Boolean = lastChanceRespawn.contains(playerId)
+
+    private fun consumeLastChanceRespawn(playerId: UUID) {
+        lastChanceRespawn.remove(playerId)
+    }
+
     private val killsByPlayer = mutableMapOf<UUID, Int>()
     private val teamKills = IntArray(TheWallsTeam.entries.size) { 0 }
 
@@ -205,7 +215,8 @@ class TheWallsGame(
 
         // Respawn / spectator plan
         val team = teamByPlayer[victimId] ?: return
-        val plan = if (eliminated.contains(victimId) || !isRespawnEnabled(team)) {
+        val hasLastChance = lastChanceRespawn.contains(victimId)
+        val plan = if (eliminated.contains(victimId) || (!isRespawnEnabled(team) && !hasLastChance)) {
             DeathPlan.ELIMINATED
         } else {
             DeathPlan.TEMP_RESPAWN
@@ -226,7 +237,8 @@ class TheWallsGame(
             DeathPlan.TEMP_RESPAWN -> {
                 // If respawn is disabled now (guardian destroyed during death screen) -> eliminate.
                 val team = teamByPlayer[playerId]
-                if (team == null || !isRespawnEnabled(team)) {
+                val allowLastChance = team != null && lastChanceRespawn.contains(playerId)
+                if (team == null || (!isRespawnEnabled(team) && !allowLastChance)) {
                     setPermanentSpectator(player)
                     return
                 }
@@ -235,6 +247,10 @@ class TheWallsGame(
                 val useSpectator = TheWallsSettings.respawnSpectatorMode && delay > 0
                 if (!useSpectator) {
                     clearSpectator(player)
+                    // If this was a last-chance respawn, consume it immediately.
+                    if (team != null && !isRespawnEnabled(team)) {
+                        lastChanceRespawn.remove(playerId)
+                    }
                     return
                 }
 
@@ -257,7 +273,8 @@ class TheWallsGame(
             val player = Bukkit.getPlayer(playerId) ?: return@Runnable
             val team = teamByPlayer[playerId] ?: return@Runnable
 
-            if (!isRespawnEnabled(team)) {
+            val allowLastChance = lastChanceRespawn.contains(playerId)
+            if (!isRespawnEnabled(team) && !allowLastChance) {
                 setPermanentSpectator(player)
                 return@Runnable
             }
@@ -281,6 +298,11 @@ class TheWallsGame(
             player.sendMessage(
                 Component.text("Вы возродились!", NamedTextColor.GREEN)
             )
+
+            // Consume last chance after successful respawn.
+            if (!isRespawnEnabled(team)) {
+                lastChanceRespawn.remove(playerId)
+            }
 
             tasks.remove(key)
         }, delaySeconds.coerceAtLeast(0) * 20L).taskId
@@ -391,17 +413,26 @@ class TheWallsGame(
     }
 
 
-    private fun eliminateTemporarySpectatorsOfTeam(team: TheWallsTeam) {
+    private fun grantLastChanceForTeam(team: TheWallsTeam) {
         for ((uuid, t) in teamByPlayer) {
             if (t != team) continue
-            if (!spectators.contains(uuid)) continue
             if (eliminated.contains(uuid)) continue
 
-            cancelTask(respawnTaskKey(uuid))
-            cancelTask(respawnBarTaskKey(uuid))
+            // Grant "last chance" to everyone in the team who is still in the match.
+            // If someone is currently waiting for respawn, we keep the timer - it will be allowed once.
+            if (!lastChanceRespawn.add(uuid)) continue
 
             val p = Bukkit.getPlayer(uuid) ?: continue
-            setPermanentSpectatorInternal(p, notify = true)
+            p.sendMessage(
+                Component.text("Последний шанс! У команды больше нет возрождения, но у вас есть 1 последняя жизнь.", NamedTextColor.YELLOW)
+            )
+        }
+    }
+
+    private fun clearLastChanceForTeam(team: TheWallsTeam) {
+        for ((uuid, t) in teamByPlayer) {
+            if (t != team) continue
+            lastChanceRespawn.remove(uuid)
         }
     }
 
@@ -554,8 +585,10 @@ class TheWallsGame(
         cancelTask(respawnTaskKey(uuid))
         cancelTask(respawnBarTaskKey(uuid))
         pendingDeath.remove(uuid)
+        lastChanceRespawn.remove(uuid)
         spectators.remove(uuid)
         eliminated.remove(uuid)
+        lastChanceRespawn.remove(uuid)
 
         teamByPlayer.remove(uuid)
         lastDamager.remove(uuid)
@@ -1362,8 +1395,8 @@ class TheWallsGame(
         guardianLivesLeft[team.index] = left
         if (left <= 0) {
             respawnEnabled[team.index] = false
-            // If the team lost respawn, all currently dead (temporary spectators) must be eliminated immediately.
-            eliminateTemporarySpectatorsOfTeam(team)
+            // Respawn is disabled, but players get a single "last chance" respawn (CreakyWars-style).
+            grantLastChanceForTeam(team)
             tryEndIfOnlyOneTeamLeft()
         }
 
@@ -1510,6 +1543,11 @@ class TheWallsGame(
         guardianLivesLeft[team.index] = v
         respawnEnabled[team.index] = v > 0
 
+        if (v > 0) {
+            // Respawn is back -> last-chance tickets are no longer relevant.
+            clearLastChanceForTeam(team)
+        }
+
         if (state != GameState.RUNNING) return
         if (v <= 0) {
             if (TheWallsSettings.guardiansEnabled) {
@@ -1522,7 +1560,8 @@ class TheWallsGame(
                 guardianEntityIds[team.index] = null
             }
 
-            eliminateTemporarySpectatorsOfTeam(team)
+            // Respawn disabled -> grant exactly one final respawn to players of the team.
+            grantLastChanceForTeam(team)
             tryEndIfOnlyOneTeamLeft()
             return
         }
@@ -1535,8 +1574,14 @@ class TheWallsGame(
     fun adminSetRespawnEnabled(team: TheWallsTeam, enabled: Boolean) {
         respawnEnabled[team.index] = enabled
 
-        if (!enabled && state == GameState.RUNNING) {
-            eliminateTemporarySpectatorsOfTeam(team)
+        if (enabled) {
+            // Respawn is back -> last-chance tickets are no longer relevant.
+            clearLastChanceForTeam(team)
+            return
+        }
+
+        if (state == GameState.RUNNING) {
+            grantLastChanceForTeam(team)
             tryEndIfOnlyOneTeamLeft()
         }
     }
