@@ -6,7 +6,6 @@ import org.bukkit.event.Listener
 import org.bukkit.event.block.BlockBreakEvent
 import org.bukkit.event.block.BlockPlaceEvent
 import org.bukkit.event.entity.EntityDamageByEntityEvent
-import org.bukkit.event.entity.EntityDeathEvent
 import org.bukkit.event.entity.PlayerDeathEvent
 import org.bukkit.event.player.PlayerRespawnEvent
 import org.bukkit.projectiles.ProjectileSource
@@ -159,20 +158,6 @@ object GameListener : Listener {
         if (!game.isPvpEnabledNow()) {
             event.isCancelled = true
         }
-    }
-
-    @EventHandler
-    fun onEntityDeath(event: EntityDeathEvent) {
-        val entity = event.entity
-        val game = TheWallsGameManager.getGameByWorld(entity.world.name) ?: return
-        val team = game.getGuardianTeam(entity) ?: return
-
-        // no drops/exp from guardians
-        event.drops.clear()
-        event.droppedExp = 0
-
-        if (game.state != GameState.RUNNING) return
-        game.handleGuardianKilled(team, entity.killer)
     }
 
     @EventHandler

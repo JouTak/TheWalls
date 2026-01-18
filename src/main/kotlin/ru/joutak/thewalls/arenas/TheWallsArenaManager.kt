@@ -74,6 +74,12 @@ object TheWallsArenaManager {
 
         world = world ?: throw IllegalStateException("World '$worldName' is null after clone")
 
+        // Ensure match world difficulty (especially important for guardians).
+        try {
+            world.difficulty = TheWallsSettings.matchDifficulty
+        } catch (_: Throwable) {
+        }
+
         val cfg = TheWallsSettings.arenasById[arenaId]
         val arena = TheWallsArena(
             physicalId = physicalId,
