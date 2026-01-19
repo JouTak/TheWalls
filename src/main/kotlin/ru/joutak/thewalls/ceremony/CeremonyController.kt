@@ -8,7 +8,9 @@ import org.bukkit.event.Listener
 import org.bukkit.event.block.BlockBreakEvent
 import org.bukkit.event.block.BlockPlaceEvent
 import org.bukkit.event.entity.EntityDamageEvent
+import org.bukkit.event.entity.EntityPickupItemEvent
 import org.bukkit.event.entity.FoodLevelChangeEvent
+import org.bukkit.event.player.PlayerDropItemEvent
 import org.bukkit.event.player.PlayerInteractEvent
 import org.bukkit.event.player.PlayerJoinEvent
 import org.bukkit.event.player.PlayerMoveEvent
@@ -129,6 +131,21 @@ object CeremonyController : Listener {
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     fun onInteract(event: PlayerInteractEvent) {
         if (entry(event.player.uniqueId) != null) {
+            event.isCancelled = true
+        }
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    fun onDrop(event: PlayerDropItemEvent) {
+        if (entry(event.player.uniqueId) != null) {
+            event.isCancelled = true
+        }
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    fun onPickup(event: EntityPickupItemEvent) {
+        val p = event.entity as? Player ?: return
+        if (entry(p.uniqueId) != null) {
             event.isCancelled = true
         }
     }

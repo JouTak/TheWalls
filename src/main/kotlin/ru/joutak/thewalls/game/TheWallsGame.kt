@@ -1291,7 +1291,37 @@ class TheWallsGame(
         }
 
         if (ceremonyStarted) {
-            val delayTicks = 20L * TheWallsSettings.ceremonyDurationSeconds.toLong()
+            val durationSeconds = TheWallsSettings.ceremonyDurationSeconds.toLong().coerceAtLeast(1L)
+
+            val ceremonyEndAtMs = System.currentTimeMillis() + durationSeconds * 1000L
+            val timerTaskId = Bukkit.getScheduler().runTaskTimer(TheWallsPlugin.instance, Runnable {
+                if (state != GameState.ENDING) {
+                    cancelTask("ceremony_timer")
+                    return@Runnable
+                }
+
+                val ceremonyName = ceremonyWorldName
+                    ?: run {
+                        cancelTask("ceremony_timer")
+                        return@Runnable
+                    }
+
+                val remaining = (((ceremonyEndAtMs - System.currentTimeMillis()) + 999L) / 1000L)
+                    .toInt()
+                    .coerceAtLeast(0)
+
+                val msg = Component.text("Возврат в лобби через ${remaining}с", NamedTextColor.GRAY)
+                teamByPlayer.keys.mapNotNull { Bukkit.getPlayer(it) }
+                    .filter { it.world.name == ceremonyName }
+                    .forEach { it.sendActionBar(msg) }
+
+                if (remaining <= 0) {
+                    cancelTask("ceremony_timer")
+                }
+            }, 0L, 20L).taskId
+            tasks["ceremony_timer"] = timerTaskId
+
+            val delayTicks = 20L * durationSeconds
             val taskId = Bukkit.getScheduler().runTaskLater(TheWallsPlugin.instance, Runnable {
                 endCeremonyAndFinalize()
             }, delayTicks).taskId
@@ -1356,15 +1386,21 @@ class TheWallsGame(
         cleanupNow()
     }
 
+    fun forceCleanup(skipResults: Boolean) {
+        cleanupNowInternal(skipResults = skipResults)
+    }
+
     private fun cleanupNow() {
+        cleanupNowInternal(skipResults = false)
+    }
+
+    private fun cleanupNowInternal(skipResults: Boolean) {
         if (state == GameState.CLEANUP) return
         state = GameState.CLEANUP
 
-        // Fallback: if ceremony was started but task was bypassed, still record results here.
-        recordPendingMatchResultIfAny()
-
-        tasks.remove("cleanup")
-        tasks.remove("ceremony_end")
+        // Hard stop for all match tasks (including ceremony timers).
+        cancelAllTasks()
+        despawnAllGuardians()
 
         val currentBossBar = bossBar
         bossBar = null
@@ -1375,6 +1411,14 @@ class TheWallsGame(
             CeremonyController.clearWorld(ceremonyName)
         }
 
+        if (skipResults) {
+            pendingMatchResult = null
+            resultsSent = true
+        } else {
+            // Fallback: if ceremony was started but task was bypassed, still record results here.
+            recordPendingMatchResultIfAny()
+        }
+
         // Teleport players to lobby
         val players = teamByPlayer.keys.mapNotNull { Bukkit.getPlayer(it) }
         players.forEach { player ->
@@ -1383,7 +1427,10 @@ class TheWallsGame(
 
         // Cleanup ceremony world (if any)
         if (ceremonyName != null) {
-            TheWallsArenaManager.deleteCeremonyWorld(ceremonyName)
+            try {
+                TheWallsArenaManager.deleteCeremonyWorld(ceremonyName)
+            } catch (_: Exception) {
+            }
             ceremonyWorldName = null
         }
 
@@ -1395,6 +1442,7 @@ class TheWallsGame(
 
         TheWallsGameManager.onGameEnd(this)
     }
+
     fun formatSeconds(total: Int): String {
         val s = total.coerceAtLeast(0)
         val m = s / 60

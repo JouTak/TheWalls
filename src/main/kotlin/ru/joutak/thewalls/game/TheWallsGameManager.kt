@@ -97,7 +97,9 @@ object TheWallsGameManager {
         game.removePlayer(uuid)
 
         if (game.teamByPlayer.isEmpty()) {
-            game.shutdownImmediately("no_players")
+            // If match is already ending, keep the pending results. Otherwise it's a "no_players" shutdown.
+            val skipResults = game.state != GameState.ENDING
+            game.forceCleanup(skipResults = skipResults)
         }
     }
 
@@ -105,7 +107,8 @@ object TheWallsGameManager {
         val snapshot = gamesByWorld.values.toList()
         snapshot.forEach { game ->
             try {
-                game.shutdownImmediately("shutdown")
+                // On shutdown/crash we must cleanup worlds and tasks, but must NOT record results / start ceremony.
+                game.forceCleanup(skipResults = true)
             } catch (_: Exception) {
                 try {
                     onGameEnd(game)
