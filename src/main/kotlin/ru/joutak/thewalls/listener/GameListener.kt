@@ -1,6 +1,7 @@
 package ru.joutak.thewalls.listener
 
 import org.bukkit.entity.Player
+import org.bukkit.GameMode
 import org.bukkit.event.EventHandler
 import org.bukkit.event.Listener
 import org.bukkit.event.block.BlockBreakEvent
@@ -201,9 +202,17 @@ object GameListener : Listener {
         val player = event.player
         val game = TheWallsGameManager.getGame(player.uniqueId) ?: return
 
-        val loc = game.getRespawnLocation(player.uniqueId) ?: return
-        event.respawnLocation = loc
+        // Respawn flow must run even if spawn is missing in config, otherwise pending death state will leak.
+        val loc = game.getRespawnLocation(player.uniqueId)
+        if (loc != null) {
+            event.respawnLocation = loc
+        }
 
         game.handleRespawn(player)
+
+        // Ensure spectator mode is applied immediately (no 1-tick window in survival after respawn).
+        if (game.isSpectator(player.uniqueId)) {
+            player.gameMode = GameMode.SPECTATOR
+        }
     }
 }
