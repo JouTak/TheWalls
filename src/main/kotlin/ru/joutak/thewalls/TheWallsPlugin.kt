@@ -15,6 +15,7 @@ import ru.joutak.thewalls.listener.CenterRestrictionListener
 import ru.joutak.thewalls.listener.GameListener
 import ru.joutak.thewalls.listener.SectorBoundaryListener
 import ru.joutak.thewalls.listener.GuardianListener
+import ru.joutak.thewalls.ceremony.CeremonyController
 import ru.joutak.thewalls.listener.PlayerSessionListener
 import ru.joutak.thewalls.listener.SpectatorRestrictionListener
 import ru.joutak.thewalls.listener.WallBoundaryListener
@@ -48,6 +49,7 @@ class TheWallsPlugin : JavaPlugin() {
         server.pluginManager.registerEvents(PlayerSessionListener, this)
         server.pluginManager.registerEvents(GameListener, this)
         server.pluginManager.registerEvents(GuardianListener, this)
+        server.pluginManager.registerEvents(CeremonyController, this)
         server.pluginManager.registerEvents(WallBoundaryListener, this)
         server.pluginManager.registerEvents(CenterRestrictionListener, this)
         server.pluginManager.registerEvents(SectorBoundaryListener, this)

@@ -29,6 +29,8 @@ import ru.joutak.minigames.results.model.TeamResult
 import ru.joutak.thewalls.TheWallsPlugin
 import ru.joutak.thewalls.config.ScenarioConfig
 import ru.joutak.thewalls.config.TheWallsSettings
+import ru.joutak.thewalls.arenas.TheWallsArenaManager
+import ru.joutak.thewalls.ceremony.CeremonyController
 import ru.joutak.thewalls.lobby.LobbyService
 import java.time.Duration
 import java.util.UUID
@@ -63,6 +65,10 @@ class TheWallsGame(
     private val matchId: UUID = UUID.randomUUID()
     private var startedAtMs: Long = 0L
     private var resultsSent: Boolean = false
+    private var pendingMatchResult: MatchResult? = null
+
+    // Ceremony world (per-match clone). If started, results are recorded after ceremony ends.
+    private var ceremonyWorldName: String? = null
     private val playerTeamsSnapshot = mutableMapOf<UUID, TheWallsTeam>()
     private val playerNamesSnapshot = mutableMapOf<UUID, String>()
     private val playerJoinedAtMs = mutableMapOf<UUID, Long>()
@@ -997,14 +1003,13 @@ class TheWallsGame(
     }
 
 
-    private fun sendMatchResultsIfNeeded(winnerTeam: TheWallsTeam?, reason: String) {
+    private fun preparePendingMatchResultIfNeeded(winnerTeam: TheWallsTeam?, reason: String) {
         if (resultsSent) return
+        if (pendingMatchResult != null) return
         if (startedAtMs <= 0L) return
         if (reason == "shutdown" || reason == "no_players") return
 
         if (playerTeamsSnapshot.isEmpty()) return
-
-        resultsSent = true
 
         val endedAtMs = System.currentTimeMillis()
 
@@ -1076,7 +1081,7 @@ class TheWallsGame(
 
         val context = buildMatchContext()
 
-        val result = MatchResult(
+        pendingMatchResult = MatchResult(
             matchId = matchId,
             startedAtMs = startedAtMs,
             endedAtMs = endedAtMs,
@@ -1085,6 +1090,14 @@ class TheWallsGame(
             teams = teams,
             players = players
         )
+    }
+
+    private fun recordPendingMatchResultIfAny() {
+        if (resultsSent) return
+        val result = pendingMatchResult ?: return
+
+        resultsSent = true
+        pendingMatchResult = null
 
         // Safe when results are disabled; do not block the main thread.
         MiniGamesAPI.recordMatchResult(result)
@@ -1216,13 +1229,14 @@ class TheWallsGame(
         matchScoreboard = null
 
         val shouldAnnounce = reason != "shutdown" && reason != "no_players"
+        val matchPlayers = playerTeamsSnapshot.keys.mapNotNull { Bukkit.getPlayer(it) }
 
-        sendMatchResultsIfNeeded(winnerTeam, reason)
+        preparePendingMatchResultIfNeeded(winnerTeam, reason)
 
-        if (shouldAnnounce) {
-            val matchPlayers = playerTeamsSnapshot.keys.mapNotNull { Bukkit.getPlayer(it) }
+        var ceremonyStarted = false
+        if (shouldAnnounce && matchPlayers.isNotEmpty()) {
+            ceremonyStarted = tryStartCeremony(winnerTeam)
 
-            // In-match detailed summary (not global spam).
             val summaryLines = buildEndSummaryLines(winnerTeam, reason)
             if (summaryLines.isNotEmpty()) {
                 matchPlayers.forEach { p ->
@@ -1230,19 +1244,23 @@ class TheWallsGame(
                 }
             }
 
-            // End title for match participants.
             val titleMain = Component.text("Матч завершён", NamedTextColor.YELLOW)
             val subtitle = if (winnerTeam != null) {
                 Component.text(winnerTeam.displayName, winnerTeam.adventureColor())
             } else {
                 Component.text("Без победителя", NamedTextColor.GRAY)
             }
+
             matchPlayers.forEach { p ->
                 p.showTitle(
                     Title.title(
                         titleMain,
                         subtitle,
-                        Title.Times.times(Duration.ofMillis(150), Duration.ofMillis(1600), Duration.ofMillis(250))
+                        Title.Times.times(
+                            Duration.ofMillis(150),
+                            Duration.ofMillis(1600),
+                            Duration.ofMillis(250)
+                        )
                     )
                 )
             }
@@ -1258,47 +1276,125 @@ class TheWallsGame(
                 .append(Component.text("Арена: $arenaId. ", NamedTextColor.GRAY))
                 .append(winnerText)
 
-            // Announce globally (like other modes results).
             Bukkit.getOnlinePlayers().forEach { it.sendMessage(arenaText) }
         }
 
+        if (!ceremonyStarted) {
+            // No ceremony -> record results right away (tournament can kick immediately after this).
+            recordPendingMatchResultIfAny()
+        }
+
         if (immediate) {
+            recordPendingMatchResultIfAny()
             cleanupNow()
             return
         }
 
+        if (ceremonyStarted) {
+            val delayTicks = 20L * TheWallsSettings.ceremonyDurationSeconds.toLong()
+            val taskId = Bukkit.getScheduler().runTaskLater(TheWallsPlugin.instance, Runnable {
+                endCeremonyAndFinalize()
+            }, delayTicks).taskId
+            tasks["ceremony_end"] = taskId
+            return
+        }
+
+        val delayTicks = 20L * 5L
         val taskId = Bukkit.getScheduler().runTaskLater(TheWallsPlugin.instance, Runnable {
             cleanupNow()
-        }, 20L * 5L).taskId
+        }, delayTicks).taskId
         tasks["cleanup"] = taskId
+    }
+
+    private fun buildCeremonyWorldName(): String {
+        val current = worldName
+        if (current.startsWith("tw_game_")) {
+            return current.replaceFirst("tw_game_", "tw_ceremony_")
+        }
+        return "tw_ceremony_${arenaId}_${System.currentTimeMillis() % 100000}"
+    }
+
+    private fun tryStartCeremony(winnerTeam: TheWallsTeam?): Boolean {
+        if (!TheWallsSettings.ceremonyEnabled) return false
+        if (TheWallsSettings.ceremonyPodiums.size < 4) return false
+
+        // Don't start ceremony if template world is missing
+        val template = Bukkit.getWorld(TheWallsSettings.ceremonyTemplateWorld) ?: return false
+
+        val ceremonyName = buildCeremonyWorldName()
+        val ceremonyWorld = TheWallsArenaManager.createCeremonyWorld(template.name, ceremonyName) ?: return false
+        ceremonyWorldName = ceremonyName
+
+        val teamsInMatch = playerTeamsSnapshot.values.distinctBy { it.index }
+        val placements = computePlacements(teamsInMatch, winnerTeam)
+
+        for (team in teamsInMatch) {
+            val place = placements[team.index] ?: continue
+            val podium = TheWallsSettings.ceremonyPodiums.getOrNull(place - 1) ?: continue
+            val bounds = podium.bounds()
+
+            val players = playerTeamsSnapshot
+                .filter { it.value.index == team.index }
+                .keys
+                .mapNotNull { Bukkit.getPlayer(it) }
+                .sortedBy { it.name.lowercase() }
+
+            players.forEachIndexed { slot, player ->
+                val spawn = podium.spawnLocation(ceremonyWorld, slot)
+                player.gameMode = GameMode.ADVENTURE
+                player.fallDistance = 0f
+                player.teleport(spawn)
+                CeremonyController.setPlayerBounds(player, ceremonyName, bounds, spawn)
+            }
+        }
+
+        return true
+    }
+
+    private fun endCeremonyAndFinalize() {
+        recordPendingMatchResultIfAny()
+        cleanupNow()
     }
 
     private fun cleanupNow() {
         if (state == GameState.CLEANUP) return
-        tasks.remove("cleanup")
-        cancelAllTasks()
         state = GameState.CLEANUP
 
-        val participants = teamByPlayer.keys.toList()
-        for (uuid in participants) {
-            val player = Bukkit.getPlayer(uuid)
-            if (player != null) {
-                matchScoreboard?.removePlayer(player)
-                LobbyService.sendToLobby(player)
-                try {
-                    MatchmakingManager.removePlayer(player)
-                } catch (_: Exception) {
-                }
-            } else {
-                instance.removeActivePlayer(uuid)
-            }
+        // Fallback: if ceremony was started but task was bypassed, still record results here.
+        recordPendingMatchResultIfAny()
+
+        tasks.remove("cleanup")
+        tasks.remove("ceremony_end")
+
+        val currentBossBar = bossBar
+        bossBar = null
+        currentBossBar?.removeAll()
+
+        val ceremonyName = ceremonyWorldName
+        if (ceremonyName != null) {
+            CeremonyController.clearWorld(ceremonyName)
         }
 
-        despawnAllGuardians()
+        // Teleport players to lobby
+        val players = teamByPlayer.keys.mapNotNull { Bukkit.getPlayer(it) }
+        players.forEach { player ->
+            LobbyService.sendToLobby(player)
+        }
+
+        // Cleanup ceremony world (if any)
+        if (ceremonyName != null) {
+            TheWallsArenaManager.deleteCeremonyWorld(ceremonyName)
+            ceremonyWorldName = null
+        }
+
+        // Remove scoreboard from remaining online players
+        matchScoreboard?.let { sb ->
+            players.forEach { sb.removePlayer(it) }
+        }
+        matchScoreboard = null
 
         TheWallsGameManager.onGameEnd(this)
     }
-
     fun formatSeconds(total: Int): String {
         val s = total.coerceAtLeast(0)
         val m = s / 60

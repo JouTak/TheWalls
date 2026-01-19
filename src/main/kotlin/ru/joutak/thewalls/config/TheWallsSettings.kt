@@ -7,6 +7,7 @@ import org.bukkit.Material
 import org.bukkit.plugin.java.JavaPlugin
 import ru.joutak.minigames.domain.GameInstanceConfig
 import ru.joutak.thewalls.game.TheWallsTeam
+import ru.joutak.thewalls.ceremony.CeremonyPodium
 
 object TheWallsSettings {
 
@@ -121,6 +122,18 @@ object TheWallsSettings {
     var respawnSpectatorMode: Boolean = true
         private set
 
+    var ceremonyEnabled: Boolean = false
+        private set
+
+    var ceremonyTemplateWorld: String = "tw_ceremony"
+        private set
+
+    var ceremonyDurationSeconds: Int = 12
+        private set
+
+    var ceremonyPodiums: List<CeremonyPodium> = emptyList()
+        private set
+
     private val arenas = mutableListOf<ArenaConfig>()
     val arenasById: Map<String, ArenaConfig> get() = arenas.associateBy { it.id }
     val templateWorlds: Set<String> get() = arenas.map { it.templateWorld }.toSet()
@@ -164,6 +177,11 @@ object TheWallsSettings {
 
         cfg.addDefault("respawn.delay-seconds", 5)
         cfg.addDefault("respawn.spectator-mode", true)
+        cfg.addDefault("ceremony.enabled", false)
+        cfg.addDefault("ceremony.template-world", "tw_ceremony")
+        cfg.addDefault("ceremony.duration-seconds", 12)
+        cfg.addDefault("ceremony.podiums", emptyList<String>())
+
 
         cfg.options().copyDefaults(true)
         plugin.saveConfig()
@@ -239,6 +257,12 @@ object TheWallsSettings {
 
         respawnDelaySeconds = cfg.getInt("respawn.delay-seconds", 5).coerceIn(0, 600)
         respawnSpectatorMode = cfg.getBoolean("respawn.spectator-mode", true)
+
+        ceremonyEnabled = cfg.getBoolean("ceremony.enabled", false)
+        ceremonyTemplateWorld = cfg.getString("ceremony.template-world", "tw_ceremony") ?: "tw_ceremony"
+        ceremonyDurationSeconds = cfg.getInt("ceremony.duration-seconds", 12).coerceIn(3, 120)
+        ceremonyPodiums = parseCeremonyPodiums(cfg.get("ceremony.podiums"), plugin)
+
 
         arenas.clear()
         val arenasList = cfg.getList("arenas") ?: emptyList<Any>()
@@ -424,6 +448,99 @@ object TheWallsSettings {
         return SpawnPoint(x, y, z, yaw, pitch)
     }
 
+
+    private fun parseCeremonyPodiums(raw: Any?, plugin: JavaPlugin): List<CeremonyPodium> {
+        if (raw == null) return emptyList()
+
+        val list = when (raw) {
+            is List<*> -> raw
+            is Map<*, *> -> raw.values.toList()
+            else -> listOf(raw)
+        }
+
+        val out = mutableListOf<CeremonyPodium>()
+        for (value in list) {
+            val podium = parseCeremonyPodium(value) ?: continue
+            out += podium.normalized()
+        }
+
+        if (out.isNotEmpty() && out.size < 4) {
+            plugin.logger.warning("[TheWalls] ceremony.podiums should contain 4 podiums (places 1-4). Currently: ${out.size}")
+        }
+
+        return out
+    }
+
+    private fun parseCeremonyPodium(raw: Any?): CeremonyPodium? {
+        if (raw == null) return null
+
+        when (raw) {
+            is Map<*, *> -> {
+                val minX = (raw["minX"] as? Number)?.toInt()
+                    ?: raw["minX"]?.toString()?.toIntOrNull()
+                    ?: (raw["x1"] as? Number)?.toInt()
+                    ?: raw["x1"]?.toString()?.toIntOrNull()
+                    ?: return null
+                val y = (raw["y"] as? Number)?.toInt() ?: raw["y"]?.toString()?.toIntOrNull() ?: return null
+                val minZ = (raw["minZ"] as? Number)?.toInt()
+                    ?: raw["minZ"]?.toString()?.toIntOrNull()
+                    ?: (raw["z1"] as? Number)?.toInt()
+                    ?: raw["z1"]?.toString()?.toIntOrNull()
+                    ?: return null
+                val maxX = (raw["maxX"] as? Number)?.toInt()
+                    ?: raw["maxX"]?.toString()?.toIntOrNull()
+                    ?: (raw["x2"] as? Number)?.toInt()
+                    ?: raw["x2"]?.toString()?.toIntOrNull()
+                    ?: return null
+                val maxZ = (raw["maxZ"] as? Number)?.toInt()
+                    ?: raw["maxZ"]?.toString()?.toIntOrNull()
+                    ?: (raw["z2"] as? Number)?.toInt()
+                    ?: raw["z2"]?.toString()?.toIntOrNull()
+                    ?: return null
+                val yaw = (raw["yaw"] as? Number)?.toFloat() ?: raw["yaw"]?.toString()?.toFloatOrNull() ?: 0f
+                val pitch = (raw["pitch"] as? Number)?.toFloat() ?: raw["pitch"]?.toString()?.toFloatOrNull() ?: 0f
+                return CeremonyPodium(minX, y, minZ, maxX, maxZ, yaw, pitch)
+            }
+
+            is List<*> -> {
+                if (raw.size < 5) return null
+                val minX = (raw.getOrNull(0) as? Number)?.toInt()
+                    ?: raw.getOrNull(0)?.toString()?.toIntOrNull()
+                    ?: return null
+                val y = (raw.getOrNull(1) as? Number)?.toInt()
+                    ?: raw.getOrNull(1)?.toString()?.toIntOrNull()
+                    ?: return null
+                val minZ = (raw.getOrNull(2) as? Number)?.toInt()
+                    ?: raw.getOrNull(2)?.toString()?.toIntOrNull()
+                    ?: return null
+                val maxX = (raw.getOrNull(3) as? Number)?.toInt()
+                    ?: raw.getOrNull(3)?.toString()?.toIntOrNull()
+                    ?: return null
+                val maxZ = (raw.getOrNull(4) as? Number)?.toInt()
+                    ?: raw.getOrNull(4)?.toString()?.toIntOrNull()
+                    ?: return null
+                val yaw = (raw.getOrNull(5) as? Number)?.toFloat() ?: raw.getOrNull(5)?.toString()?.toFloatOrNull() ?: 0f
+                val pitch = (raw.getOrNull(6) as? Number)?.toFloat() ?: raw.getOrNull(6)?.toString()?.toFloatOrNull() ?: 0f
+                return CeremonyPodium(minX, y, minZ, maxX, maxZ, yaw, pitch)
+            }
+        }
+
+        val str = raw.toString().trim()
+        if (str.isBlank()) return null
+
+        val cleaned = str.replace(';', ',')
+        val parts = cleaned.split(',').map { it.trim() }.filter { it.isNotBlank() }
+        if (parts.size < 5) return null
+
+        val minX = parts.getOrNull(0)?.toIntOrNull() ?: return null
+        val y = parts.getOrNull(1)?.toIntOrNull() ?: return null
+        val minZ = parts.getOrNull(2)?.toIntOrNull() ?: return null
+        val maxX = parts.getOrNull(3)?.toIntOrNull() ?: return null
+        val maxZ = parts.getOrNull(4)?.toIntOrNull() ?: return null
+        val yaw = parts.getOrNull(5)?.toFloatOrNull() ?: 0f
+        val pitch = parts.getOrNull(6)?.toFloatOrNull() ?: 0f
+        return CeremonyPodium(minX, y, minZ, maxX, maxZ, yaw, pitch)
+    }
     private fun parseCuboid(raw: Any?): CuboidRegion? {
         if (raw == null) return null
 

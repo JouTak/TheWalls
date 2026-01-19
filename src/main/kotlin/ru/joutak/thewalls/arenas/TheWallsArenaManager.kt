@@ -92,6 +92,51 @@ object TheWallsArenaManager {
         return arena
     }
 
+
+    fun createCeremonyWorld(templateWorldName: String, ceremonyWorldName: String): World? {
+        ensureInit()
+
+        val template: World = Bukkit.getWorld(templateWorldName) ?: return null
+
+        // If garbage with same name exists (rare, but possible after crashes)
+        deleteWorld(ceremonyWorldName)
+
+        val cloned = try {
+            multiverseCore.mvWorldManager.cloneWorld(template.name, ceremonyWorldName)
+        } catch (_: Exception) {
+            false
+        }
+
+        if (!cloned) {
+            deleteWorld(ceremonyWorldName)
+            return null
+        }
+
+        var world = Bukkit.getWorld(ceremonyWorldName)
+
+        if (world == null) {
+            try {
+                world = Bukkit.createWorld(WorldCreator(ceremonyWorldName))
+            } catch (_: Exception) {
+            }
+        }
+
+        world = world ?: return null
+
+        // Ceremony world should be safe and stable
+        try {
+            world.setGameRuleValue("doMobSpawning", "false")
+            world.setGameRuleValue("doDaylightCycle", "false")
+            world.setGameRuleValue("doWeatherCycle", "false")
+        } catch (_: Throwable) {
+        }
+
+        return world
+    }
+
+    fun deleteCeremonyWorld(worldName: String) {
+        deleteWorld(worldName)
+    }
     fun deleteArena(worldName: String) {
         arenasByWorld.remove(worldName)
         deleteWorld(worldName)
@@ -107,7 +152,7 @@ object TheWallsArenaManager {
         var deleted = 0
 
         val mvWorldsToDelete = multiverseCore.mvWorldManager.mvWorlds
-            .filter { it.name.startsWith("tw_game_") && !activeWorlds.contains(it.name) }
+            .filter { (it.name.startsWith("tw_game_") || it.name.startsWith("tw_ceremony_")) && !activeWorlds.contains(it.name) }
             .map { it.name }
             .toSet()
 
@@ -120,7 +165,7 @@ object TheWallsArenaManager {
         // Also remove folders without a registered mv-world (rare, but happens after hard crashes)
         val container = Bukkit.getWorldContainer()
         container.listFiles { f ->
-            f.isDirectory && f.name.startsWith("tw_game_") && !activeWorlds.contains(f.name)
+            f.isDirectory && (f.name.startsWith("tw_game_") || f.name.startsWith("tw_ceremony_")) && !activeWorlds.contains(f.name)
         }?.forEach { dir ->
             try {
                 if (dir.deleteRecursively()) {
@@ -139,7 +184,7 @@ object TheWallsArenaManager {
 
         // Also unload loaded tw_game_ worlds (if any) and delete
         Bukkit.getWorlds().map { it.name }
-            .filter { it.startsWith("tw_game_") }
+            .filter { it.startsWith("tw_game_") || it.startsWith("tw_ceremony_") }
             .forEach { deleteWorld(it) }
 
         arenasByWorld.clear()
