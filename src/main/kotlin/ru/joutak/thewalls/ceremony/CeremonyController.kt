@@ -54,6 +54,13 @@ object CeremonyController : Listener {
 
     private fun entry(playerId: UUID): Entry? = entries[playerId]
 
+    private fun clampIntoBounds(loc: Location, bounds: Bounds): Location {
+        val world = loc.world
+        val x = loc.x.coerceIn(bounds.minX, bounds.maxX)
+        val z = loc.z.coerceIn(bounds.minZ, bounds.maxZ)
+        return Location(world, x, loc.y, z, loc.yaw, loc.pitch)
+    }
+
     @EventHandler(priority = EventPriority.MONITOR)
     fun onJoin(event: PlayerJoinEvent) {
         // Safety: if we have stale ceremony bounds (reloads), remove them.
@@ -68,11 +75,12 @@ object CeremonyController : Listener {
         if (to.world.name != e.worldName) return
         if (e.bounds.contains(to)) return
 
-        // Snap back into the podium.
-        val back = e.safe.clone()
-        back.yaw = event.player.location.yaw
-        back.pitch = event.player.location.pitch
-        event.setTo(back)
+        // Don't teleport to the center — just prevent leaving the bounds (like in other modes).
+        val from = event.from
+        val safe = if (e.bounds.contains(from)) from.clone() else clampIntoBounds(to, e.bounds)
+        safe.yaw = event.player.location.yaw
+        safe.pitch = event.player.location.pitch
+        event.setTo(safe)
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
