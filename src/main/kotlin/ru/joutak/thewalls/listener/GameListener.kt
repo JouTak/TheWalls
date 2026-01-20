@@ -3,6 +3,7 @@ package ru.joutak.thewalls.listener
 import org.bukkit.entity.Player
 import org.bukkit.GameMode
 import org.bukkit.event.EventHandler
+import org.bukkit.event.EventPriority
 import org.bukkit.event.Listener
 import org.bukkit.event.block.BlockBreakEvent
 import org.bukkit.event.block.BlockPlaceEvent
@@ -15,6 +16,9 @@ import net.kyori.adventure.text.format.NamedTextColor
 import ru.joutak.thewalls.config.TheWallsSettings
 import ru.joutak.thewalls.game.GameState
 import ru.joutak.thewalls.game.TheWallsGameManager
+import org.bukkit.Bukkit
+import org.bukkit.event.player.PlayerTeleportEvent
+import ru.joutak.thewalls.TheWallsPlugin
 
 object GameListener : Listener {
 
@@ -194,7 +198,42 @@ object GameListener : Listener {
         val game = TheWallsGameManager.getGame(victim.uniqueId) ?: return
 
         if (victim.world.name != game.worldName) return
+        if (game.state != GameState.RUNNING || !game.isParticipant(victim.uniqueId) || game.isSpectator(victim.uniqueId)) return
         game.handleDeath(victim)
+
+        // CreakyWars/Splatoon-like behavior: instant respawn into spectator (no "Возродиться" button).
+        Bukkit.getScheduler().runTaskLater(TheWallsPlugin.instance, Runnable {
+            if (!victim.isOnline) return@Runnable
+            if (TheWallsGameManager.getGame(victim.uniqueId) == null) return@Runnable
+            try {
+                victim.spigot().respawn()
+            } catch (_: Throwable) {
+                // Fallback for API changes
+                try {
+                    victim.javaClass.getMethod("respawn").invoke(victim)
+                } catch (_: Throwable) {
+                }
+            }
+        }, 1L)
+    }
+
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    fun onSpectatorHotbarTeleport(event: PlayerTeleportEvent) {
+        if (event.cause != PlayerTeleportEvent.TeleportCause.SPECTATE) return
+
+        val player = event.player
+        val game = TheWallsGameManager.getGame(player.uniqueId) ?: return
+
+        if (player.world.name != game.worldName) return
+        if (!game.isSpectator(player.uniqueId)) return
+
+        // Disable spectator hotbar teleport/menu during matches.
+        event.isCancelled = true
+        try {
+            player.spectatorTarget = null
+        } catch (_: Throwable) {
+        }
     }
 
     @EventHandler

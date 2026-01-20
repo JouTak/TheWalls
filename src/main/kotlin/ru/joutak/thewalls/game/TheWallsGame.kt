@@ -323,14 +323,14 @@ class TheWallsGame(
         eliminated.remove(playerId)
         spectators.add(playerId)
 
-        Bukkit.getScheduler().runTask(TheWallsPlugin.instance, Runnable {
-            if (state != GameState.RUNNING) return@Runnable
-            if (!isParticipant(playerId)) return@Runnable
-            player.gameMode = GameMode.SPECTATOR
-            player.sendMessage(
-                Component.text("Вы погибли. Возрождение через ${TheWallsSettings.respawnDelaySeconds}с", NamedTextColor.YELLOW)
-            )
-        })
+        if (state != GameState.RUNNING) return
+        if (!isParticipant(playerId)) return
+
+        player.gameMode = GameMode.SPECTATOR
+        try {
+            player.spectatorTarget = null
+        } catch (_: Throwable) {
+        }
     }
 
     private fun setPermanentSpectator(player: Player) {
@@ -382,10 +382,16 @@ class TheWallsGame(
         cancelTask(key)
         if (delaySeconds <= 0) return
 
-        // Immediate hint
+        // Immediate title
         Bukkit.getPlayer(playerId)?.let { p ->
             if (p.world.name == worldName && spectators.contains(playerId) && !eliminated.contains(playerId)) {
-                p.sendActionBar(Component.text("Возрождение через ${delaySeconds}с", NamedTextColor.YELLOW))
+                p.showTitle(
+                    Title.title(
+                        Component.text("☠ Вы погибли ☠", NamedTextColor.RED),
+                        Component.text("Возрождение через ${delaySeconds}с", NamedTextColor.YELLOW),
+                        Title.Times.times(Duration.ZERO, Duration.ofMillis(1100), Duration.ZERO)
+                    )
+                )
             }
         }
 
@@ -411,7 +417,14 @@ class TheWallsGame(
                 cancelTask(key)
                 return@Runnable
             }
-            player.sendActionBar(Component.text("Возрождение через ${remaining}с", NamedTextColor.YELLOW))
+
+            player.showTitle(
+                Title.title(
+                    Component.text("☠ Вы погибли ☠", NamedTextColor.RED),
+                    Component.text("Возрождение через ${remaining}с", NamedTextColor.YELLOW),
+                    Title.Times.times(Duration.ZERO, Duration.ofMillis(1100), Duration.ZERO)
+                )
+            )
             remaining--
         }, 20L, 20L).taskId
 
