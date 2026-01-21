@@ -19,6 +19,12 @@ object ScenarioConfig {
     var totalSeconds: Int = 0
         private set
 
+    var oresGenerate: Boolean = true
+        private set
+
+    var oresMine: Boolean = true
+        private set
+
     fun load(plugin: JavaPlugin) {
         file = File(plugin.dataFolder, "scenario-config.yml")
         if (!file.exists()) {
@@ -28,16 +34,26 @@ object ScenarioConfig {
         config = YamlConfiguration.loadConfiguration(file)
         loadPhases(plugin)
 
+        oresGenerate = config.getBoolean("ores.generate", true)
+        oresMine = config.getBoolean("ores.mine", true)
+
         plugin.logger.info("[TheWalls] Scenario config loaded (${phases.size} phases, totalSeconds=$totalSeconds)")
     }
 
     fun reload(plugin: JavaPlugin) {
         config = YamlConfiguration.loadConfiguration(file)
         loadPhases(plugin)
+
+        oresGenerate = config.getBoolean("ores.generate", true)
+        oresMine = config.getBoolean("ores.mine", true)
     }
 
     private fun writeDefaultScenario(plugin: JavaPlugin) {
         val yml = YamlConfiguration()
+
+        // Ores (enabled by default)
+        yml.set("ores.generate", true)
+        yml.set("ores.mine", true)
 
         val buildSeconds = TheWallsSettings.matchBuildSeconds.coerceAtLeast(0)
         val totalSeconds = TheWallsSettings.matchTotalSeconds.coerceAtLeast(10)

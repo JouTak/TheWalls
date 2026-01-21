@@ -32,6 +32,9 @@ import ru.joutak.thewalls.config.TheWallsSettings
 import ru.joutak.thewalls.arenas.TheWallsArenaManager
 import ru.joutak.thewalls.ceremony.CeremonyController
 import ru.joutak.thewalls.lobby.LobbyService
+import ru.joutak.thewalls.ores.OreConfig
+import ru.joutak.thewalls.ores.OreController
+import ru.joutak.thewalls.ores.OreRegistry
 import java.time.Duration
 import java.util.UUID
 import kotlin.math.max
@@ -60,6 +63,9 @@ class TheWallsGame(
     private val tasks = mutableMapOf<String, Int>()
     private var bossBar: BossBar? = null
     private var matchScoreboard: TheWallsMatchScoreboard? = null
+
+    private var oreController: OreController? = null
+
 
     // Results (shared DB via MiniGamesAPI)
     private val matchId: UUID = UUID.randomUUID()
@@ -757,6 +763,10 @@ class TheWallsGame(
             spawnAllGuardians()
         }
 
+        initOresIfNeeded()
+
+        initOresIfNeeded()
+
         val taskId = Bukkit.getScheduler().runTaskTimer(TheWallsPlugin.instance, Runnable {
             if (state != GameState.RUNNING) {
                 cancelTask("timer")
@@ -786,6 +796,26 @@ class TheWallsGame(
         }, 20L, 20L).taskId
 
         tasks["timer"] = taskId
+    }
+
+    private fun initOresIfNeeded() {
+        if (oreController != null) return
+        if (!OreConfig.hasAnyPoints()) return
+
+        val world = Bukkit.getWorld(worldName) ?: return
+
+        val controller = OreController(
+            plugin = TheWallsPlugin.instance,
+            world = world,
+            isGenerationEnabled = { ScenarioConfig.oresGenerate },
+            isMiningEnabled = { ScenarioConfig.oresMine }
+        )
+
+        val taskId = controller.start()
+        tasks["ores"] = taskId
+
+        oreController = controller
+        OreRegistry.register(world.name, controller)
     }
 
     private fun defaultScenarioPhases(): List<GamePhase> {
@@ -1413,6 +1443,11 @@ class TheWallsGame(
 
         // Hard stop for all match tasks (including ceremony timers).
         cancelAllTasks()
+
+        oreController?.stop()
+        oreController = null
+        OreRegistry.unregister(worldName)
+
         despawnAllGuardians()
 
         val currentBossBar = bossBar

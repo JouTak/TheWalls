@@ -19,6 +19,8 @@ import ru.joutak.thewalls.ceremony.CeremonyController
 import ru.joutak.thewalls.listener.PlayerSessionListener
 import ru.joutak.thewalls.listener.SpectatorRestrictionListener
 import ru.joutak.thewalls.listener.WallBoundaryListener
+import ru.joutak.thewalls.ores.OreConfig
+import ru.joutak.thewalls.ores.OreRegistry
 
 class TheWallsPlugin : JavaPlugin() {
     companion object {
@@ -35,6 +37,9 @@ class TheWallsPlugin : JavaPlugin() {
         saveDefaultConfig()
         TheWallsSettings.load(this)
         ScenarioConfig.load(this)
+
+        // Ores
+        OreConfig.load(this)
 
         // MiniGamesAPI infrastructure (queue, lobby items, /ready, /teamselect, etc.)
         MiniGamesCore.initialize(this)
@@ -55,6 +60,9 @@ class TheWallsPlugin : JavaPlugin() {
         server.pluginManager.registerEvents(SectorBoundaryListener, this)
         server.pluginManager.registerEvents(SpectatorRestrictionListener, this)
 
+        // Ores
+        server.pluginManager.registerEvents(OreRegistry, this)
+
         pollTaskId = Bukkit.getScheduler().runTaskTimer(this, Runnable {
             val ready: GameInstance = MatchmakingManager.pollReady() ?: return@Runnable
             TheWallsGameManager.createGame(ready)
@@ -68,5 +76,7 @@ class TheWallsPlugin : JavaPlugin() {
         pollTaskId = null
 
         TheWallsGameManager.shutdownAllGames()
+
+        OreRegistry.clearAll()
     }
 }

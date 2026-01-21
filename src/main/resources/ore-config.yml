@@ -1,0 +1,55 @@
+settings:
+  # Общий множитель скорости восстановления (1.0 = как задано в respawn-seconds-*)
+  speed-multiplier: 1.0
+
+  # Разрешённые блоки, которые мы имеем право заменить на руду/потухший
+  replaceable-blocks:
+    - STONE
+    - DEEPSLATE
+    - TUFF
+    - ANDESITE
+    - DIORITE
+    - GRANITE
+    - AIR
+    - CAVE_AIR
+
+  # Если true — точки на "незаменяемых" блоках не трогаем и не резервируем
+  skip-non-replaceable: true
+
+ores:
+  coal:
+    block: COAL_ORE
+    depleted: TUFF
+    respawn-seconds-min: 35
+    respawn-seconds-max: 55
+    points: []
+  iron:
+    block: IRON_ORE
+    depleted: ANDESITE
+    respawn-seconds-min: 55
+    respawn-seconds-max: 80
+    points: []
+  gold:
+    block: GOLD_ORE
+    depleted: DIORITE
+    respawn-seconds-min: 80
+    respawn-seconds-max: 110
+    points: []
+  copper:
+    block: COPPER_ORE
+    depleted: GRANITE
+    respawn-seconds-min: 45
+    respawn-seconds-max: 70
+    points: []
+  redstone:
+    block: REDSTONE_ORE
+    depleted: COBBLED_DEEPSLATE
+    respawn-seconds-min: 60
+    respawn-seconds-max: 95
+    points: []
+  diamond:
+    block: DIAMOND_ORE
+    depleted: DEEPSLATE
+    respawn-seconds-min: 120
+    respawn-seconds-max: 180
+    points: []
