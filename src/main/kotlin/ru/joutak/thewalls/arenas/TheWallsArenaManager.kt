@@ -81,6 +81,25 @@ object TheWallsArenaManager {
         }
 
         val cfg = TheWallsSettings.arenasById[arenaId]
+
+        // Configure vanilla world border (optional, per arena)
+        try {
+            val c = cfg
+            if (c != null) {
+                val cfgBorderSize = c.borderSize
+                if (cfgBorderSize != null && cfgBorderSize > 1.0) {
+                    val border = world.worldBorder
+                    val center = (c.borderCenter ?: c.centerPoint).toLocation(world.name)
+                    border.center = center
+                    border.size = cfgBorderSize
+                    border.damageBuffer = c.borderDamageBuffer
+                    border.damageAmount = c.borderDamageAmount
+                    border.warningDistance = c.borderWarningDistance
+                    border.warningTime = c.borderWarningTime
+                }
+            }
+        } catch (_: Throwable) {
+        }
         val arena = TheWallsArena(
             physicalId = physicalId,
             arenaId = arenaId,

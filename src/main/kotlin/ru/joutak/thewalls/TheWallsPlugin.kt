@@ -7,16 +7,17 @@ import ru.joutak.minigames.MiniGamesCore
 import ru.joutak.minigames.domain.GameInstance
 import ru.joutak.minigames.managers.MatchmakingManager
 import ru.joutak.thewalls.arenas.TheWallsArenaManager
+import ru.joutak.thewalls.ceremony.CeremonyController
 import ru.joutak.thewalls.command.TheWallsAdminCommand
 import ru.joutak.thewalls.config.ScenarioConfig
 import ru.joutak.thewalls.config.TheWallsSettings
 import ru.joutak.thewalls.game.TheWallsGameManager
 import ru.joutak.thewalls.listener.CenterRestrictionListener
+import ru.joutak.thewalls.listener.FastFurnaceListener
 import ru.joutak.thewalls.listener.GameListener
-import ru.joutak.thewalls.listener.SectorBoundaryListener
 import ru.joutak.thewalls.listener.GuardianListener
-import ru.joutak.thewalls.ceremony.CeremonyController
 import ru.joutak.thewalls.listener.PlayerSessionListener
+import ru.joutak.thewalls.listener.SectorBoundaryListener
 import ru.joutak.thewalls.listener.SpectatorRestrictionListener
 import ru.joutak.thewalls.listener.WallBoundaryListener
 import ru.joutak.thewalls.ores.OreConfig
@@ -38,7 +39,7 @@ class TheWallsPlugin : JavaPlugin() {
         TheWallsSettings.load(this)
         ScenarioConfig.load(this)
 
-        // Ores
+        // Ores (creates plugins/TheWalls/ore-config.yml if missing)
         OreConfig.load(this)
 
         // MiniGamesAPI infrastructure (queue, lobby items, /ready, /teamselect, etc.)
@@ -59,6 +60,7 @@ class TheWallsPlugin : JavaPlugin() {
         server.pluginManager.registerEvents(CenterRestrictionListener, this)
         server.pluginManager.registerEvents(SectorBoundaryListener, this)
         server.pluginManager.registerEvents(SpectatorRestrictionListener, this)
+        server.pluginManager.registerEvents(FastFurnaceListener, this)
 
         // Ores
         server.pluginManager.registerEvents(OreRegistry, this)

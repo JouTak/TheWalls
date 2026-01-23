@@ -60,7 +60,16 @@ object TheWallsSettings {
         val centerPoint: SpawnPoint,
         val centerRadius: Double,
         val walls: List<CuboidRegion>,
-        val guardianSpawns: Map<TheWallsTeam, SpawnPoint>
+        val guardianSpawns: Map<TheWallsTeam, SpawnPoint>,
+
+        // Vanilla world border (like in CreakyWars)
+        // If borderSize is null - border is not configured for this arena.
+        val borderSize: Double? = null,
+        val borderCenter: SpawnPoint? = null,
+        val borderDamageBuffer: Double = 0.0,
+        val borderDamageAmount: Double = 2.0,
+        val borderWarningDistance: Int = 5,
+        val borderWarningTime: Int = 10
     )
 
     lateinit var lobbyWorld: String
@@ -122,6 +131,12 @@ object TheWallsSettings {
     var respawnSpectatorMode: Boolean = true
         private set
 
+    var fastFurnaceEnabled: Boolean = true
+        private set
+
+    var fastFurnaceSpeedMultiplier: Double = 3.0
+        private set
+
     var ceremonyEnabled: Boolean = false
         private set
 
@@ -177,6 +192,8 @@ object TheWallsSettings {
 
         cfg.addDefault("respawn.delay-seconds", 5)
         cfg.addDefault("respawn.spectator-mode", true)
+        cfg.addDefault("fast-furnace.enabled", true)
+        cfg.addDefault("fast-furnace.speed-multiplier", 3.0)
         cfg.addDefault("ceremony.enabled", false)
         cfg.addDefault("ceremony.template-world", "tw_ceremony")
         cfg.addDefault("ceremony.duration-seconds", 12)
@@ -258,6 +275,9 @@ object TheWallsSettings {
         respawnDelaySeconds = cfg.getInt("respawn.delay-seconds", 5).coerceIn(0, 600)
         respawnSpectatorMode = cfg.getBoolean("respawn.spectator-mode", true)
 
+        fastFurnaceEnabled = cfg.getBoolean("fast-furnace.enabled", true)
+        fastFurnaceSpeedMultiplier = cfg.getDouble("fast-furnace.speed-multiplier", 3.0).coerceAtLeast(1.0)
+
         ceremonyEnabled = cfg.getBoolean("ceremony.enabled", false)
         ceremonyTemplateWorld = cfg.getString("ceremony.template-world", "tw_ceremony") ?: "tw_ceremony"
         ceremonyDurationSeconds = cfg.getInt("ceremony.duration-seconds", 12).coerceIn(3, 120)
@@ -317,6 +337,13 @@ object TheWallsSettings {
                     if (r != null) teamSectors[team] = r
                 }
             }
+            val borderSec = sec["border"] as? Map<*, *>
+            val borderSize = (borderSec?.get("size") as? Number)?.toDouble()?.takeIf { it > 1.0 }
+            val borderCenter = borderSec?.get("center")?.let { parseSpawn(it) } ?: centerPoint
+            val borderDamageBuffer = (borderSec?.get("damage-buffer") as? Number)?.toDouble() ?: 0.0
+            val borderDamageAmount = (borderSec?.get("damage-amount") as? Number)?.toDouble() ?: 2.0
+            val borderWarningDistance = (borderSec?.get("warning-distance") as? Number)?.toInt() ?: 5
+            val borderWarningTime = (borderSec?.get("warning-time") as? Number)?.toInt() ?: 10
 
             arenas += ArenaConfig(
                 id = id,
@@ -327,7 +354,13 @@ object TheWallsSettings {
                 centerPoint = centerPoint,
                 centerRadius = centerRadius,
                 walls = walls,
-                guardianSpawns = guardianSpawns
+                guardianSpawns = guardianSpawns,
+                borderSize = borderSize,
+                borderCenter = borderCenter,
+                borderDamageBuffer = borderDamageBuffer,
+                borderDamageAmount = borderDamageAmount,
+                borderWarningDistance = borderWarningDistance,
+                borderWarningTime = borderWarningTime
             )
         }
 

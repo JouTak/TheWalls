@@ -66,6 +66,9 @@ object ScenarioConfig {
         yml.set("phases.build.walls-locked", true)
         yml.set("phases.build.center-locked", true)
         yml.set("phases.build.break-walls-on-start", false)
+yml.set("phases.build.border-shrink", false)
+yml.set("phases.build.border-shrink-speed", 0.1)
+yml.set("phases.build.border-final-size", 20.0)
         yml.set("phases.build.start-title", "Подготовка")
         yml.set("phases.build.start-subtitle", "Стены и центр закрыты")
         yml.set("phases.build.start-message", "")
@@ -77,6 +80,9 @@ object ScenarioConfig {
         yml.set("phases.open.walls-locked", false)
         yml.set("phases.open.center-locked", false)
         yml.set("phases.open.break-walls-on-start", true)
+yml.set("phases.open.border-shrink", false)
+yml.set("phases.open.border-shrink-speed", 0.1)
+yml.set("phases.open.border-final-size", 20.0)
         yml.set("phases.open.start-title", "Стены разрушены!")
         yml.set("phases.open.start-subtitle", "Центр открыт")
         yml.set("phases.open.start-message", "")
@@ -114,6 +120,11 @@ object ScenarioConfig {
             val centerLocked = section.getBoolean("center-locked", false)
             val breakWallsOnStart = section.getBoolean("break-walls-on-start", false)
 
+            val borderShrink = section.getBoolean("border-shrink", false)
+            val borderShrinkSpeed = section.getDouble("border-shrink-speed", 0.1)
+            val borderFinalSize = section.getDouble("border-final-size", 20.0)
+
+
             val startTitle = section.getString("start-title", "") ?: ""
             val startSubtitle = section.getString("start-subtitle", "") ?: ""
             val startMessage = section.getString("start-message", "") ?: ""
@@ -127,6 +138,9 @@ object ScenarioConfig {
                 wallsLocked = wallsLocked,
                 centerLocked = centerLocked,
                 breakWallsOnStart = breakWallsOnStart,
+                borderShrink = borderShrink,
+                borderShrinkSpeed = borderShrinkSpeed,
+                borderFinalSize = borderFinalSize,
                 startTitle = startTitle,
                 startSubtitle = startSubtitle,
                 startMessage = startMessage

@@ -1,6 +1,7 @@
 package ru.joutak.thewalls.ores
 
 import org.bukkit.Material
+import org.bukkit.configuration.ConfigurationSection
 import org.bukkit.configuration.file.YamlConfiguration
 import org.bukkit.plugin.java.JavaPlugin
 import java.io.File
@@ -41,12 +42,64 @@ object OreConfig {
     fun get(type: OreType): OreEntry? = entries[type]
 
     fun load(plugin: JavaPlugin) {
-        val file = File(plugin.dataFolder, "ore-config.yml")
-        if (!file.exists()) {
-            plugin.saveResource("ore-config.yml", false)
+        // Ensure plugin folder exists
+        if (!plugin.dataFolder.exists()) {
+            plugin.dataFolder.mkdirs()
         }
 
+        val file = File(plugin.dataFolder, "ore-config.yml")
+        ensureFileExists(plugin, file)
+
+        plugin.logger.info("[TheWalls] Ore config path: ${file.absolutePath} (exists=${file.exists()})")
+
         val cfg = YamlConfiguration.loadConfiguration(file)
+
+        // Migrate / fill missing keys without overwriting existing points.
+        var changed = false
+        if (!cfg.contains("settings.speed-multiplier")) {
+            cfg.set("settings.speed-multiplier", 1.0)
+            changed = true
+        }
+        if (!cfg.contains("settings.skip-non-replaceable")) {
+            cfg.set("settings.skip-non-replaceable", true)
+            changed = true
+        }
+        if (!cfg.contains("settings.replaceable-blocks")) {
+            cfg.set(
+                "settings.replaceable-blocks",
+                listOf(
+                    "STONE",
+                    "DEEPSLATE",
+                    "TUFF",
+                    "ANDESITE",
+                    "DIORITE",
+                    "GRANITE",
+                    "AIR",
+                    "CAVE_AIR"
+                )
+            )
+            changed = true
+        }
+
+        val oresSection = cfg.getConfigurationSection("ores") ?: run {
+            cfg.createSection("ores")
+            changed = true
+            cfg.getConfigurationSection("ores")!!
+        }
+
+        for (type in OreType.values()) {
+            val sec = oresSection.getConfigurationSection(type.key) ?: run {
+                oresSection.createSection(type.key)
+                changed = true
+                oresSection.getConfigurationSection(type.key)!!
+            }
+            changed = ensureOreDefaults(sec, type) || changed
+        }
+
+        if (changed) {
+            runCatching { cfg.save(file) }
+                .onFailure { plugin.logger.warning("[TheWalls] Failed to save migrated ore-config.yml: ${it.message}") }
+        }
 
         speedMultiplier = cfg.getDouble("settings.speed-multiplier", 1.0).coerceAtLeast(0.05)
 
@@ -61,9 +114,9 @@ object OreConfig {
 
         entries.clear()
 
-        val oresSection = cfg.getConfigurationSection("ores") ?: return
+        val oresSection2 = cfg.getConfigurationSection("ores") ?: return
         for (type in OreType.values()) {
-            val sec = oresSection.getConfigurationSection(type.key) ?: continue
+            val sec = oresSection2.getConfigurationSection(type.key) ?: continue
 
             val oreMat = sec.getString("block")?.let {
                 runCatching { Material.valueOf(it.trim().uppercase()) }.getOrNull()
@@ -89,6 +142,74 @@ object OreConfig {
         }
 
         plugin.logger.info("[TheWalls] Ore config loaded (${entries.size} ore types, points=${entries.values.sumOf { it.points.size }})")
+    }
+
+    private fun ensureFileExists(plugin: JavaPlugin, file: File) {
+        if (file.exists()) return
+
+        // Try bundled resource first.
+        try {
+            plugin.saveResource("ore-config.yml", false)
+        } catch (t: Throwable) {
+            // ignore; we will fallback below
+        }
+
+        if (file.exists()) return
+
+        // Fallback: create minimal default file even if resource isn't packaged
+        val cfg = YamlConfiguration()
+        cfg.set("settings.speed-multiplier", 1.0)
+        cfg.set("settings.skip-non-replaceable", true)
+        cfg.set(
+            "settings.replaceable-blocks",
+            listOf(
+                "STONE",
+                "DEEPSLATE",
+                "TUFF",
+                "ANDESITE",
+                "DIORITE",
+                "GRANITE",
+                "AIR",
+                "CAVE_AIR"
+            )
+        )
+
+        val ores = cfg.createSection("ores")
+        for (type in OreType.values()) {
+            val sec = ores.createSection(type.key)
+            ensureOreDefaults(sec, type)
+        }
+
+        runCatching {
+            cfg.save(file)
+        }.onFailure {
+            plugin.logger.severe("[TheWalls] Failed to create ore-config.yml at ${file.absolutePath}: ${it.message}")
+        }
+    }
+
+    private fun ensureOreDefaults(sec: ConfigurationSection, type: OreType): Boolean {
+        var changed = false
+        if (!sec.contains("block")) {
+            sec.set("block", defaultOreMaterial(type).name)
+            changed = true
+        }
+        if (!sec.contains("depleted")) {
+            sec.set("depleted", defaultDepletedMaterial(type).name)
+            changed = true
+        }
+        if (!sec.contains("respawn-seconds-min")) {
+            sec.set("respawn-seconds-min", defaultMinSeconds(type))
+            changed = true
+        }
+        if (!sec.contains("respawn-seconds-max")) {
+            sec.set("respawn-seconds-max", defaultMaxSeconds(type))
+            changed = true
+        }
+        if (!sec.contains("points")) {
+            sec.set("points", emptyList<String>())
+            changed = true
+        }
+        return changed
     }
 
     private fun defaultOreMaterial(type: OreType): Material = when (type) {

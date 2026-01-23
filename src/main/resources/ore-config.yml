@@ -4,7 +4,7 @@ settings:
 
   # Разрешённые блоки, которые мы имеем право заменить на руду/потухший
   replaceable-blocks:
-    - STONE
+    - STONEф
     - DEEPSLATE
     - TUFF
     - ANDESITE

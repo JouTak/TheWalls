@@ -50,7 +50,8 @@ object TheWallsGameManager {
             centerRadius = cfg?.centerRadius,
             wallRegions = cfg?.walls ?: emptyList(),
             guardianSpawns = cfg?.guardianSpawns ?: emptyMap(),
-            wallBreakBlocksPerTick = TheWallsSettings.wallBreakBlocksPerTick
+            wallBreakBlocksPerTick = TheWallsSettings.wallBreakBlocksPerTick,
+            borderConfigured = cfg?.borderSize != null && (cfg.borderSize ?: 0.0) > 1.0
         )
 
         gamesByWorld[arena.worldName] = game

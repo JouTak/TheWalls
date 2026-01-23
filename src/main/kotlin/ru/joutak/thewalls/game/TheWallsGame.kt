@@ -49,7 +49,8 @@ class TheWallsGame(
     private val centerRadius: Double?,
     private val wallRegions: List<TheWallsSettings.CuboidRegion>,
     private val guardianSpawns: Map<TheWallsTeam, TheWallsSettings.SpawnPoint>,
-    private val wallBreakBlocksPerTick: Int
+    private val wallBreakBlocksPerTick: Int,
+    private val borderConfigured: Boolean
 ) {
 
     private enum class DeathPlan {
@@ -765,8 +766,6 @@ class TheWallsGame(
 
         initOresIfNeeded()
 
-        initOresIfNeeded()
-
         val taskId = Bukkit.getScheduler().runTaskTimer(TheWallsPlugin.instance, Runnable {
             if (state != GameState.RUNNING) {
                 cancelTask("timer")
@@ -780,6 +779,8 @@ class TheWallsGame(
             }
 
             ensurePhaseUpToDate(announce = true)
+
+            tickWorldBorderShrink(getCurrentPhase())
 
             // Total time limit always wins.
             totalRemainingSeconds = (matchEndSecond - elapsedSeconds).coerceAtLeast(0)
@@ -833,6 +834,9 @@ class TheWallsGame(
                 wallsLocked = true,
                 centerLocked = true,
                 breakWallsOnStart = false,
+                borderShrink = false,
+                borderShrinkSpeed = 0.1,
+                borderFinalSize = 20.0,
                 startTitle = "Подготовка",
                 startSubtitle = "Стены и центр закрыты",
                 startMessage = ""
@@ -846,11 +850,31 @@ class TheWallsGame(
                 wallsLocked = false,
                 centerLocked = false,
                 breakWallsOnStart = true,
+                borderShrink = false,
+                borderShrinkSpeed = 0.1,
+                borderFinalSize = 20.0,
                 startTitle = "Стены разрушены!",
                 startSubtitle = "Центр открыт",
                 startMessage = ""
             )
         )
+    }
+
+
+    private fun tickWorldBorderShrink(phase: GamePhase?) {
+        if (!borderConfigured) return
+        if (phase == null) return
+        if (!phase.borderShrink) return
+        if (phase.borderShrinkSpeed <= 0.0) return
+
+        val world = Bukkit.getWorld(worldName) ?: return
+        val border = world.worldBorder
+        if (border.size <= phase.borderFinalSize) return
+
+        val newSize = maxOf(phase.borderFinalSize, border.size - phase.borderShrinkSpeed)
+        if (newSize < border.size) {
+            border.size = newSize
+        }
     }
 
     private fun barColorForPhase(phase: GamePhase?): BarColor {

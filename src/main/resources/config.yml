@@ -82,6 +82,11 @@ arenas:
     walls:
       # - "-15, 64, -2, 15, 90, 2"
 
+fast-furnace:
+  enabled: true
+  # How much faster furnaces should smelt (2.0 = twice as fast).
+  speed-multiplier: 3.0
+
 # Ceremony world after match end (per-match clone).
 # Players will be placed on podiums (places 1-4) and won't be able to leave their 4x4 area.
 ceremony:

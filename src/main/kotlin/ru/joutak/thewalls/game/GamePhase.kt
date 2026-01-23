@@ -9,6 +9,12 @@ data class GamePhase(
     val wallsLocked: Boolean,
     val centerLocked: Boolean,
     val breakWallsOnStart: Boolean,
+
+    // Vanilla world border shrink (same concept as in CreakyWars)
+    val borderShrink: Boolean,
+    val borderShrinkSpeed: Double,
+    val borderFinalSize: Double,
+
     val startTitle: String,
     val startSubtitle: String,
     val startMessage: String
