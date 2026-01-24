@@ -468,6 +468,8 @@ class TheWallsGame(
         return sp.toLocation(worldName)
     }
 
+    fun getPlayerKills(playerId: UUID): Int = killsByPlayer[playerId] ?: 0
+
     fun getTeamKills(team: TheWallsTeam): Int = teamKills.getOrElse(team.index) { 0 }
 
     fun isCenterBlocked(loc: Location): Boolean {
