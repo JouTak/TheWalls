@@ -18,9 +18,35 @@ import ru.joutak.thewalls.game.GameState
 import ru.joutak.thewalls.game.TheWallsGameManager
 import org.bukkit.Bukkit
 import org.bukkit.event.player.PlayerTeleportEvent
+import org.bukkit.event.player.PlayerPortalEvent
+import org.bukkit.event.world.PortalCreateEvent
 import ru.joutak.thewalls.TheWallsPlugin
 
 object GameListener : Listener {
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    fun onPortalCreate(event: PortalCreateEvent) {
+        val worldName = event.world.name
+        if (TheWallsGameManager.getGameByWorld(worldName) == null) return
+
+        // Block creating Nether portals inside match worlds.
+        // Nether portals are the only portals created via FIRE.
+        if (event.reason == PortalCreateEvent.CreateReason.FIRE) {
+            event.isCancelled = true
+        }
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    fun onPlayerUsePortal(event: PlayerPortalEvent) {
+        if (event.cause != PlayerTeleportEvent.TeleportCause.NETHER_PORTAL) return
+
+        val player = event.player
+        if (TheWallsGameManager.getGameByWorld(player.world.name) == null) return
+
+        // Players must not escape matches through Nether.
+        event.isCancelled = true
+        player.sendActionBar(Component.text("Порталы отключены на арене", NamedTextColor.RED))
+    }
 
     @EventHandler
     fun onBlockPlace(event: BlockPlaceEvent) {

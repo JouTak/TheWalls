@@ -7,12 +7,40 @@ import org.bukkit.event.EventHandler
 import org.bukkit.event.EventPriority
 import org.bukkit.event.Listener
 import org.bukkit.event.entity.EntityDamageByEntityEvent
+import org.bukkit.event.entity.EntityDamageEvent
 import org.bukkit.event.entity.EntityDeathEvent
 import org.bukkit.event.entity.EntityTargetLivingEntityEvent
 import ru.joutak.thewalls.game.GameState
 import ru.joutak.thewalls.game.TheWallsGameManager
 
 object GuardianListener : Listener {
+
+    private val immuneCauses: Set<EntityDamageEvent.DamageCause> = setOf(
+        EntityDamageEvent.DamageCause.FALL,
+        EntityDamageEvent.DamageCause.FIRE,
+        EntityDamageEvent.DamageCause.FIRE_TICK,
+        EntityDamageEvent.DamageCause.LAVA,
+        EntityDamageEvent.DamageCause.HOT_FLOOR,
+        EntityDamageEvent.DamageCause.DROWNING,
+        EntityDamageEvent.DamageCause.SUFFOCATION,
+        EntityDamageEvent.DamageCause.VOID,
+        EntityDamageEvent.DamageCause.CONTACT,
+    )
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    fun onEnvironmentalDamage(event: EntityDamageEvent) {
+        // Guard: only guardians inside a match world.
+        val entity = event.entity
+        val game = TheWallsGameManager.getGameByWorld(entity.world.name) ?: return
+
+        // Not a guardian.
+        if (game.getGuardianTeam(entity) == null) return
+
+        // Guardian should not randomly die to environment.
+        if (event.cause in immuneCauses) {
+            event.isCancelled = true
+        }
+    }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     fun onTarget(event: EntityTargetLivingEntityEvent) {

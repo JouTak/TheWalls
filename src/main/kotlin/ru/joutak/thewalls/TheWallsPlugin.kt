@@ -13,6 +13,7 @@ import ru.joutak.thewalls.config.ScenarioConfig
 import ru.joutak.thewalls.config.TheWallsSettings
 import ru.joutak.thewalls.game.TheWallsGameManager
 import ru.joutak.thewalls.listener.CenterRestrictionListener
+import ru.joutak.thewalls.listener.ConcretePowderStabilizerListener
 import ru.joutak.thewalls.listener.FastFurnaceListener
 import ru.joutak.thewalls.listener.GameListener
 import ru.joutak.thewalls.listener.GuardianListener
@@ -61,6 +62,7 @@ class TheWallsPlugin : JavaPlugin() {
         server.pluginManager.registerEvents(SectorBoundaryListener, this)
         server.pluginManager.registerEvents(SpectatorRestrictionListener, this)
         server.pluginManager.registerEvents(FastFurnaceListener, this)
+        server.pluginManager.registerEvents(ConcretePowderStabilizerListener, this)
 
         // Ores
         server.pluginManager.registerEvents(OreRegistry, this)
