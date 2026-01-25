@@ -69,9 +69,14 @@ object OreConfig {
         for (type in OreType.values()) {
             val sec = oresSection2.getConfigurationSection(type.key) ?: continue
 
-            val depletedMat = sec.getString("depleted")?.let {
-                runCatching { Material.valueOf(it.trim().uppercase()) }.getOrNull()
+            val rawDepletedName = sec.getString("depleted")?.trim()
+
+            val parsedDepleted = rawDepletedName?.let {
+                runCatching { Material.valueOf(it.uppercase()) }.getOrNull()
             } ?: defaultDepletedMaterial(type)
+
+            val depletedMat = normalizeDepletedMaterial(plugin, type, parsedDepleted, rawDepletedName)
+
 
             val secS = sec.getInt(
                 "respawn-seconds",
@@ -137,6 +142,29 @@ object OreConfig {
         }
         return changed
     }
+
+
+
+
+
+    private fun normalizeDepletedMaterial(
+        plugin: JavaPlugin,
+        type: OreType,
+        material: Material,
+        rawName: String?
+    ): Material {
+        // Concrete powder falls. For "depleted" blocks we want something stable.
+        if (!material.name.endsWith("_CONCRETE_POWDER")) return material
+
+        val solidName = material.name.removeSuffix("_POWDER")
+        val solid = runCatching { Material.valueOf(solidName) }.getOrNull() ?: return material
+
+        plugin.logger.warning(
+            "[TheWalls] ore-config.yml: ores.${type.key}.depleted=$rawName is ${material.name} (falls). Using $solidName instead."
+        )
+        return solid
+    }
+
 
     private fun defaultDepletedMaterial(type: OreType): Material = when (type) {
         OreType.COAL -> Material.TUFF

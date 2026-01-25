@@ -1,5 +1,103 @@
+# TheWalls default config
+# Все координаты задаются строками формата: "x, y, z, yaw, pitch" (yaw/pitch можно опускать)
 
-furnace-speed:
-  furnace: 0.75
-  blast-furnace-ore: 0.1
-  smoker-food: 0.35
+lobby:
+  world: world
+  spawn: "0, 80, 0, 0, 0"
+
+players-per-team: 4
+
+match:
+  countdown-seconds: 10
+  total-seconds: 900
+  build-seconds: 600
+
+  # Сложность мира матча
+  difficulty: NORMAL
+
+  rules:
+    friendly-fire: false
+    pvp-in-build: false
+    protected-blocks:
+      - BEDROCK
+      - BARRIER
+      - STRUCTURE_BLOCK
+      - JIGSAW
+      - COMMAND_BLOCK
+      - CHAIN_COMMAND_BLOCK
+      - REPEATING_COMMAND_BLOCK
+
+  walls:
+    blocks-per-tick: 8000
+    # Блоки, которые никогда не будут ломаться при падении стен
+    keep-blocks:
+      - BEDROCK
+      - BARRIER
+      - STRUCTURE_BLOCK
+      - JIGSAW
+      - COMMAND_BLOCK
+      - CHAIN_COMMAND_BLOCK
+      - REPEATING_COMMAND_BLOCK
+
+
+respawn:
+  delay-seconds: 5
+  spectator-mode: true
+
+# Ускорение печки/плавильни/смокера
+fast-furnace:
+  enabled: true
+  # 1.0 = без ускорения
+  speed-multiplier: 3.0
+
+guardians:
+  enabled: true
+  lives: 3
+  respawn-seconds: 10
+  max-health: 40.0
+  name: "Хранитель"
+
+ceremony:
+  enabled: false
+  template-world: thewalls_ceremony
+  duration-seconds: 12
+  podiums: []
+
+# Арены задаются списком. Минимально нужно: id, template-world, team-spawns, team-sectors, center, walls.
+# "walls" — стены, которые должны упасть (разрушаться плагином).
+# "boundary-walls" — фейк-стены/границы карты: их нельзя ломать и проходить сквозь, но они НЕ падают.
+arenas:
+  - id: arena1
+    template-world: thewalls_arena1
+    pool-size: 1
+
+    team-spawns:
+      ORANGE: "-50, 80, 0, 90, 0"
+      BLUE: "50, 80, 0, -90, 0"
+      PINK: "0, 80, -50, 0, 0"
+      GREEN: "0, 80, 50, 180, 0"
+
+    team-sectors:
+      ORANGE: "-128, 0, -128; -1, 255, 128"
+      BLUE: "1, 0, -128; 128, 255, 128"
+      PINK: "-128, 0, -128; 128, 255, -1"
+      GREEN: "-128, 0, 1; 128, 255, 128"
+
+    center:
+      point: "0, 80, 0"
+      radius: 12
+
+    walls:
+      # Пример: кубоид между секторами
+      - "-2, 0, -128; 2, 255, 128"
+
+    boundary-walls: []
+
+    guardian-spawns:
+      ORANGE: "-40, 80, 0"
+      BLUE: "40, 80, 0"
+      PINK: "0, 80, -40"
+      GREEN: "0, 80, 40"
+
+    # Если задан, будет выставлен vanilla worldborder вокруг центра
+    border-size: 512

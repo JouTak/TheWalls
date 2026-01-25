@@ -48,6 +48,7 @@ class TheWallsGame(
     private val centerPoint: TheWallsSettings.SpawnPoint?,
     private val centerRadius: Double?,
     private val wallRegions: List<TheWallsSettings.CuboidRegion>,
+    private val boundaryWallRegions: List<TheWallsSettings.CuboidRegion>,
     private val guardianSpawns: Map<TheWallsTeam, TheWallsSettings.SpawnPoint>,
     private val wallBreakBlocksPerTick: Int,
     private val borderConfigured: Boolean
@@ -507,6 +508,38 @@ class TheWallsGame(
             if (by < r.minY || by > r.maxY) continue
             if (bz < r.minZ || bz > r.maxZ) continue
             return true
+        }
+        return false
+    }
+
+    fun isInBoundaryWallRegion(loc: Location): Boolean {
+        if (boundaryWallRegions.isEmpty()) return false
+        val bx = loc.blockX
+        val by = loc.blockY
+        val bz = loc.blockZ
+        for (r in boundaryWallRegions) {
+            if (bx < r.minX || bx > r.maxX) continue
+            if (by < r.minY || by > r.maxY) continue
+            if (bz < r.minZ || bz > r.maxZ) continue
+            return true
+        }
+        return false
+    }
+
+    fun doesPathCrossBoundaryWall(from: Location, to: Location): Boolean {
+        if (boundaryWallRegions.isEmpty()) return false
+        // Fast path: if target is inside boundary wall, obviously intersects.
+        if (isInBoundaryWallRegion(to)) return true
+
+        val x0 = from.x
+        val y0 = from.y
+        val z0 = from.z
+        val x1 = to.x
+        val y1 = to.y
+        val z1 = to.z
+
+        for (r in boundaryWallRegions) {
+            if (segmentIntersectsAabb(x0, y0, z0, x1, y1, z1, r)) return true
         }
         return false
     }
@@ -1561,6 +1594,7 @@ class TheWallsGame(
             recordPendingMatchResultIfAny()
         }
 
+        
         // Teleport players to lobby
         val players = teamByPlayer.keys.mapNotNull { Bukkit.getPlayer(it) }
         players.forEach { player ->
@@ -1583,6 +1617,12 @@ class TheWallsGame(
         matchScoreboard = null
 
         TheWallsGameManager.onGameEnd(this)
+
+        // Clear active player UUIDs in the instance (otherwise it stays started=true forever).
+        runCatching {
+            instance.getActivePlayerIds().forEach { uuid -> instance.removeActivePlayer(uuid) }
+        }
+
     }
 
     fun formatSeconds(total: Int): String {

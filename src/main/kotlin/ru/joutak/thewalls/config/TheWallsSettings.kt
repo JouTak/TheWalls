@@ -208,6 +208,22 @@ object TheWallsSettings {
         cfg.addDefault("ceremony.duration-seconds", 12)
         cfg.addDefault("ceremony.podiums", emptyList<String>())
 
+        // Migration from old configs (left patches)
+
+        var migrated = false
+        if (cfg.contains("furnace-speed.enabled") && !cfg.contains("fast-furnace.enabled")) {
+            cfg.set("fast-furnace.enabled", cfg.getBoolean("furnace-speed.enabled"))
+            migrated = true
+        }
+        if (cfg.contains("furnace-speed.speed-multiplier") && !cfg.contains("fast-furnace.speed-multiplier")) {
+            cfg.set("fast-furnace.speed-multiplier", cfg.getDouble("furnace-speed.speed-multiplier"))
+            migrated = true
+        }
+        if (migrated) {
+            plugin.logger.info("[TheWalls] Migrated config keys: furnace-speed -> fast-furnace")
+        }
+
+
 
         cfg.options().copyDefaults(true)
         plugin.saveConfig()
