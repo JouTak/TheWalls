@@ -49,6 +49,7 @@ object TheWallsGameManager {
             centerPoint = cfg?.centerPoint,
             centerRadius = cfg?.centerRadius,
             wallRegions = cfg?.walls ?: emptyList(),
+            boundaryWallRegions = cfg?.boundaryWalls ?: emptyList(),
             guardianSpawns = cfg?.guardianSpawns ?: emptyMap(),
             wallBreakBlocksPerTick = TheWallsSettings.wallBreakBlocksPerTick,
             borderConfigured = cfg?.borderSize != null && (cfg.borderSize ?: 0.0) > 1.0

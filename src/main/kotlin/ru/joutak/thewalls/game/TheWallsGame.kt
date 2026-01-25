@@ -803,22 +803,90 @@ class TheWallsGame(
 
     private fun initOresIfNeeded() {
         if (oreController != null) return
-        if (!OreConfig.hasAnyPoints()) return
 
         val world = Bukkit.getWorld(worldName) ?: return
+
+        val scanBounds = buildOreScanBounds(world)
 
         val controller = OreController(
             plugin = TheWallsPlugin.instance,
             world = world,
+            scanBounds = scanBounds,
             isGenerationEnabled = { ScenarioConfig.oresGenerate },
             isMiningEnabled = { ScenarioConfig.oresMine }
         )
 
-        val taskId = controller.start()
+        val taskId = controller.start() ?: return
         tasks["ores"] = taskId
 
         oreController = controller
         OreRegistry.register(world.name, controller)
+    }
+
+    private fun buildOreScanBounds(world: org.bukkit.World): OreController.ScanBounds? {
+        val cfg = TheWallsSettings.arenasById[arenaId]
+        if (cfg != null) {
+            // Prefer arena border if configured.
+            if (borderConfigured) {
+                try {
+                    val b = world.worldBorder
+                    val size = b.size
+                    if (size > 4.0) {
+                        val half = size / 2.0
+                        val c = b.center
+                        val minX = kotlin.math.floor(c.x - half).toInt()
+                        val maxX = kotlin.math.ceil(c.x + half).toInt()
+                        val minZ = kotlin.math.floor(c.z - half).toInt()
+                        val maxZ = kotlin.math.ceil(c.z + half).toInt()
+                        return OreController.ScanBounds(
+                            minX = minX,
+                            maxX = maxX,
+                            minY = world.minHeight,
+                            maxY = world.maxHeight - 1,
+                            minZ = minZ,
+                            maxZ = maxZ
+                        )
+                    }
+                } catch (_: Throwable) {
+                }
+            }
+
+            // Otherwise use union bounds of known arena regions.
+            val regions = ArrayList<TheWallsSettings.CuboidRegion>()
+            regions.addAll(cfg.teamSectors.values)
+            regions.addAll(cfg.walls)
+
+            if (regions.isNotEmpty()) {
+                var minX = Int.MAX_VALUE
+                var minY = Int.MAX_VALUE
+                var minZ = Int.MAX_VALUE
+                var maxX = Int.MIN_VALUE
+                var maxY = Int.MIN_VALUE
+                var maxZ = Int.MIN_VALUE
+
+                for (r0 in regions) {
+                    val r = r0.normalized()
+                    minX = minOf(minX, r.minX)
+                    minY = minOf(minY, r.minY)
+                    minZ = minOf(minZ, r.minZ)
+                    maxX = maxOf(maxX, r.maxX)
+                    maxY = maxOf(maxY, r.maxY)
+                    maxZ = maxOf(maxZ, r.maxZ)
+                }
+
+                return OreController.ScanBounds(
+                    minX = minX,
+                    maxX = maxX,
+                    minY = minY,
+                    maxY = maxY,
+                    minZ = minZ,
+                    maxZ = maxZ
+                )
+            }
+        }
+
+        // Fallback to controller's own inference.
+        return null
     }
 
     private fun defaultScenarioPhases(): List<GamePhase> {

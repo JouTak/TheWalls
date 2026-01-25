@@ -8,19 +8,29 @@ import org.bukkit.entity.Player
 import org.bukkit.event.block.BlockBreakEvent
 import org.bukkit.event.block.BlockPlaceEvent
 import org.bukkit.plugin.java.JavaPlugin
-import java.util.concurrent.ThreadLocalRandom
 
 class OreController(
     private val plugin: JavaPlugin,
     private val world: World,
+    private val scanBounds: ScanBounds?,
     private val isGenerationEnabled: () -> Boolean,
     private val isMiningEnabled: () -> Boolean
 ) {
+
+    data class ScanBounds(
+        val minX: Int,
+        val maxX: Int,
+        val minY: Int,
+        val maxY: Int,
+        val minZ: Int,
+        val maxZ: Int
+    )
 
     private enum class State { ACTIVE, DEPLETED }
 
     private data class Node(
         val type: OreType,
+        val oreMaterial: Material,
         var state: State,
         var restoreAtMs: Long
     )
@@ -31,9 +41,9 @@ class OreController(
 
     fun hasAnyNodes(): Boolean = nodes.isNotEmpty()
 
-    fun start(): Int {
-        buildNodes()
-        filterInvalidNodes()
+    fun start(): Int? {
+        buildNodesFromWorld()
+        if (nodes.isEmpty()) return null
         lastGenEnabled = isGenerationEnabled()
 
         // Default: everything is generated (ACTIVE) if generation enabled.
@@ -82,8 +92,8 @@ class OreController(
             return true
         }
 
-        // Only allow breaking the configured ore block.
-        if (block.type != entry.oreBlock) {
+        // Only allow breaking the original ore block.
+        if (block.type != node.oreMaterial) {
             event.isCancelled = true
             return true
         }
@@ -116,7 +126,7 @@ class OreController(
             return true
         }
 
-        node.restoreAtMs = System.currentTimeMillis() + randomDelayMs(entry.respawnMinSeconds, entry.respawnMaxSeconds)
+        node.restoreAtMs = System.currentTimeMillis() + fixedDelayMs(entry.respawnSeconds)
         return true
     }
 
@@ -143,11 +153,9 @@ class OreController(
             val entry = OreConfig.get(node.type) ?: continue
             if (!world.isChunkLoaded(pos.x shr 4, pos.z shr 4)) continue
             val b = world.getBlockAt(pos.x, pos.y, pos.z)
-            if (b.type == entry.oreBlock || b.type == entry.depletedBlock) continue
-            if (b.type == Material.AIR || b.type == Material.CAVE_AIR) {
-                b.type = entry.depletedBlock
-                node.state = State.DEPLETED
-            }
+            if (b.type == node.oreMaterial || b.type == entry.depletedBlock) continue
+            b.type = entry.depletedBlock
+            node.state = State.DEPLETED
         }
 
         if (!genEnabled) return
@@ -163,40 +171,70 @@ class OreController(
 
             // Restore only if still depleted/air. We never allow placing here, so this is safe.
             if (b.type == entry.depletedBlock || b.type == Material.AIR || b.type == Material.CAVE_AIR) {
-                b.type = entry.oreBlock
+                b.type = node.oreMaterial
                 node.state = State.ACTIVE
                 node.restoreAtMs = 0L
             }
         }
     }
 
-    private fun buildNodes() {
+    private fun buildNodesFromWorld() {
         nodes.clear()
-        if (!OreConfig.hasAnyPoints()) return
 
-        for (type in OreType.values()) {
-            val entry = OreConfig.get(type) ?: continue
-            for (pos in entry.points) {
-                nodes[pos] = Node(type, State.ACTIVE, 0L)
+        val b = scanBounds ?: inferBoundsFromBorderOrSpawn()
+        val minX = minOf(b.minX, b.maxX)
+        val maxX = maxOf(b.minX, b.maxX)
+        val minZ = minOf(b.minZ, b.maxZ)
+        val maxZ = maxOf(b.minZ, b.maxZ)
+        val minY = minOf(b.minY, b.maxY)
+        val maxY = maxOf(b.minY, b.maxY)
+
+        val worldMinY = world.minHeight
+        val worldMaxY = world.maxHeight - 1
+
+        val aMinY = minY.coerceAtLeast(worldMinY)
+        val aMaxY = maxY.coerceAtMost(worldMaxY)
+
+        val minChunkX = minX shr 4
+        val maxChunkX = maxX shr 4
+        val minChunkZ = minZ shr 4
+        val maxChunkZ = maxZ shr 4
+
+        val counts = HashMap<OreType, Int>()
+
+        for (cx in minChunkX..maxChunkX) {
+            for (cz in minChunkZ..maxChunkZ) {
+                val chunk = world.getChunkAt(cx, cz)
+                for (lx in 0..15) {
+                    val x = (cx shl 4) + lx
+                    if (x < minX || x > maxX) continue
+                    for (lz in 0..15) {
+                        val z = (cz shl 4) + lz
+                        if (z < minZ || z > maxZ) continue
+                        for (y in aMinY..aMaxY) {
+                            val mat = chunk.getBlock(lx, y, lz).type
+                            val type = typeFromOreMaterial(mat) ?: continue
+                            val pos = BlockPos(x, y, z)
+                            // Keep first found node for safety.
+                            if (nodes.containsKey(pos)) continue
+                            nodes[pos] = Node(type, mat, State.ACTIVE, 0L)
+                            counts[type] = (counts[type] ?: 0) + 1
+                            // Ensure the block is the ore itself (it is, but keep consistent)
+                            // and reserve this location from placement.
+                            // depleted block comes from config.
+                            // (no changes here)
+                            //
+                            // We intentionally allow both stone/deepslate variants.
+                        }
+                    }
+                }
             }
         }
-    }
 
-    private fun filterInvalidNodes() {
-        if (!OreConfig.skipNonReplaceable) return
-        var removed = 0
-        val it = nodes.entries.iterator()
-        while (it.hasNext()) {
-            val (pos, node) = it.next()
-            val entry = OreConfig.get(node.type) ?: continue
-            val block = world.getBlockAt(pos.x, pos.y, pos.z)
-            if (canReplace(block, entry)) continue
-            // Misconfigured point (chest/structure/etc.) - do not touch and do not reserve.
-            it.remove()
-            removed++
-        }
-        if (removed > 0) {
-            plugin.logger.warning("[TheWalls] Ore points skipped: $removed (non-replaceable blocks in template world)")
+        if (nodes.isNotEmpty()) {
+            val total = nodes.size
+            val byType = counts.entries.joinToString { "${it.key.key}=${it.value}" }
+            plugin.logger.info("[TheWalls] Ore scan: found $total nodes ($byType) in world ${world.name}")
         }
     }
 
@@ -204,8 +242,7 @@ class OreController(
         for ((pos, node) in nodes) {
             val entry = OreConfig.get(node.type) ?: continue
             val block = world.getBlockAt(pos.x, pos.y, pos.z)
-            if (!canReplace(block, entry)) continue
-            block.type = entry.oreBlock
+            block.type = node.oreMaterial
             node.state = State.ACTIVE
             node.restoreAtMs = 0L
         }
@@ -215,27 +252,69 @@ class OreController(
         for ((pos, node) in nodes) {
             val entry = OreConfig.get(node.type) ?: continue
             val block = world.getBlockAt(pos.x, pos.y, pos.z)
-            if (!canReplace(block, entry)) continue
             block.type = entry.depletedBlock
             node.state = State.DEPLETED
             node.restoreAtMs = 0L
         }
     }
 
-    private fun canReplace(block: Block, entry: OreConfig.OreEntry): Boolean {
-        val t = block.type
-        if (OreConfig.replaceableBlocks.contains(t)) return true
-        if (t == entry.oreBlock || t == entry.depletedBlock) return true
-        return false
+    private fun fixedDelayMs(seconds: Int): Long {
+        val scaled = (seconds.toDouble() * OreConfig.speedMultiplier * 1000.0)
+        return scaled.toLong().coerceAtLeast(1000L)
     }
 
-    private fun randomDelayMs(minSeconds: Int, maxSeconds: Int): Long {
-        val sec = if (maxSeconds <= minSeconds) {
-            minSeconds
-        } else {
-            ThreadLocalRandom.current().nextInt(minSeconds, maxSeconds + 1)
+    private fun typeFromOreMaterial(mat: Material): OreType? = when (mat) {
+        Material.COAL_ORE, Material.DEEPSLATE_COAL_ORE -> OreType.COAL
+        Material.IRON_ORE, Material.DEEPSLATE_IRON_ORE -> OreType.IRON
+        Material.GOLD_ORE, Material.DEEPSLATE_GOLD_ORE -> OreType.GOLD
+        Material.COPPER_ORE, Material.DEEPSLATE_COPPER_ORE -> OreType.COPPER
+        Material.REDSTONE_ORE, Material.DEEPSLATE_REDSTONE_ORE -> OreType.REDSTONE
+        Material.DIAMOND_ORE, Material.DEEPSLATE_DIAMOND_ORE -> OreType.DIAMOND
+        else -> null
+    }
+
+    private fun inferBoundsFromBorderOrSpawn(): ScanBounds {
+        return try {
+            val border = world.worldBorder
+            val size = border.size
+            if (size > 4.0) {
+                val half = size / 2.0
+                val c = border.center
+                val minX = kotlin.math.floor(c.x - half).toInt()
+                val maxX = kotlin.math.ceil(c.x + half).toInt()
+                val minZ = kotlin.math.floor(c.z - half).toInt()
+                val maxZ = kotlin.math.ceil(c.z + half).toInt()
+                ScanBounds(
+                    minX = minX,
+                    maxX = maxX,
+                    minY = world.minHeight,
+                    maxY = world.maxHeight - 1,
+                    minZ = minZ,
+                    maxZ = maxZ
+                )
+            } else {
+                val spawn = world.spawnLocation
+                val r = 256
+                ScanBounds(
+                    minX = spawn.blockX - r,
+                    maxX = spawn.blockX + r,
+                    minY = world.minHeight,
+                    maxY = world.maxHeight - 1,
+                    minZ = spawn.blockZ - r,
+                    maxZ = spawn.blockZ + r
+                )
+            }
+        } catch (_: Throwable) {
+            val spawn = world.spawnLocation
+            val r = 256
+            ScanBounds(
+                minX = spawn.blockX - r,
+                maxX = spawn.blockX + r,
+                minY = world.minHeight,
+                maxY = world.maxHeight - 1,
+                minZ = spawn.blockZ - r,
+                maxZ = spawn.blockZ + r
+            )
         }
-        val scaled = (sec.toDouble() * OreConfig.speedMultiplier * 1000.0)
-        return scaled.toLong().coerceAtLeast(1000L)
     }
 }

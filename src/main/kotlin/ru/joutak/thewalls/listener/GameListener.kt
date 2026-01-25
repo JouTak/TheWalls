@@ -48,6 +48,13 @@ object GameListener : Listener {
             return
         }
 
+        // Permanent boundary walls: never break / never build.
+        if (game.isInBoundaryWallRegion(event.block.location)) {
+            event.isCancelled = true
+            player.sendActionBar(Component.text("Граница карты", NamedTextColor.RED))
+            return
+        }
+
         if (game.isWallsLockedNow() && game.isInWallRegion(event.block.location)) {
             event.isCancelled = true
             player.sendActionBar(Component.text("Нельзя строить в стенах до их разрушения", NamedTextColor.YELLOW))
@@ -77,6 +84,13 @@ object GameListener : Listener {
         if (TheWallsSettings.protectedBlocks.contains(type)) {
             event.isCancelled = true
             player.sendActionBar(Component.text("Этот блок защищён на арене", NamedTextColor.RED))
+            return
+        }
+
+        // Permanent boundary walls: never break.
+        if (game.isInBoundaryWallRegion(event.block.location)) {
+            event.isCancelled = true
+            player.sendActionBar(Component.text("Граница карты", NamedTextColor.RED))
             return
         }
 

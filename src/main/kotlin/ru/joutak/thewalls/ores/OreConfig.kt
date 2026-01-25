@@ -10,34 +10,14 @@ import java.util.EnumMap
 object OreConfig {
 
     data class OreEntry(
-        val oreBlock: Material,
         val depletedBlock: Material,
-        val respawnMinSeconds: Int,
-        val respawnMaxSeconds: Int,
-        val points: List<BlockPos>
+        val respawnSeconds: Int
     )
 
     var speedMultiplier: Double = 1.0
         private set
 
-    var skipNonReplaceable: Boolean = true
-        private set
-
-    var replaceableBlocks: Set<Material> = setOf(
-        Material.STONE,
-        Material.DEEPSLATE,
-        Material.TUFF,
-        Material.ANDESITE,
-        Material.DIORITE,
-        Material.GRANITE,
-        Material.AIR,
-        Material.CAVE_AIR
-    )
-        private set
-
     private val entries = EnumMap<OreType, OreEntry>(OreType::class.java)
-
-    fun hasAnyPoints(): Boolean = entries.values.any { it.points.isNotEmpty() }
 
     fun get(type: OreType): OreEntry? = entries[type]
 
@@ -54,30 +34,10 @@ object OreConfig {
 
         val cfg = YamlConfiguration.loadConfiguration(file)
 
-        // Migrate / fill missing keys without overwriting existing points.
+        // Migrate / fill missing keys.
         var changed = false
         if (!cfg.contains("settings.speed-multiplier")) {
             cfg.set("settings.speed-multiplier", 1.0)
-            changed = true
-        }
-        if (!cfg.contains("settings.skip-non-replaceable")) {
-            cfg.set("settings.skip-non-replaceable", true)
-            changed = true
-        }
-        if (!cfg.contains("settings.replaceable-blocks")) {
-            cfg.set(
-                "settings.replaceable-blocks",
-                listOf(
-                    "STONE",
-                    "DEEPSLATE",
-                    "TUFF",
-                    "ANDESITE",
-                    "DIORITE",
-                    "GRANITE",
-                    "AIR",
-                    "CAVE_AIR"
-                )
-            )
             changed = true
         }
 
@@ -103,45 +63,28 @@ object OreConfig {
 
         speedMultiplier = cfg.getDouble("settings.speed-multiplier", 1.0).coerceAtLeast(0.05)
 
-        val replaceable = cfg.getStringList("settings.replaceable-blocks")
-        if (replaceable.isNotEmpty()) {
-            replaceableBlocks = replaceable.mapNotNull {
-                runCatching { Material.valueOf(it.trim().uppercase()) }.getOrNull()
-            }.toSet()
-        }
-
-        skipNonReplaceable = cfg.getBoolean("settings.skip-non-replaceable", true)
-
         entries.clear()
 
         val oresSection2 = cfg.getConfigurationSection("ores") ?: return
         for (type in OreType.values()) {
             val sec = oresSection2.getConfigurationSection(type.key) ?: continue
 
-            val oreMat = sec.getString("block")?.let {
-                runCatching { Material.valueOf(it.trim().uppercase()) }.getOrNull()
-            } ?: defaultOreMaterial(type)
-
             val depletedMat = sec.getString("depleted")?.let {
                 runCatching { Material.valueOf(it.trim().uppercase()) }.getOrNull()
             } ?: defaultDepletedMaterial(type)
 
-            val minS = sec.getInt("respawn-seconds-min", defaultMinSeconds(type)).coerceAtLeast(1)
-            val maxS = sec.getInt("respawn-seconds-max", defaultMaxSeconds(type)).coerceAtLeast(minS)
-
-            val points = sec.getStringList("points")
-                .mapNotNull(BlockPos::parse)
+            val secS = sec.getInt(
+                "respawn-seconds",
+                sec.getInt("respawn-seconds-min", defaultRespawnSeconds(type))
+            ).coerceAtLeast(1)
 
             entries[type] = OreEntry(
-                oreBlock = oreMat,
                 depletedBlock = depletedMat,
-                respawnMinSeconds = minS,
-                respawnMaxSeconds = maxS,
-                points = points
+                respawnSeconds = secS
             )
         }
 
-        plugin.logger.info("[TheWalls] Ore config loaded (${entries.size} ore types, points=${entries.values.sumOf { it.points.size }})")
+        plugin.logger.info("[TheWalls] Ore config loaded (${entries.size} ore types)")
     }
 
     private fun ensureFileExists(plugin: JavaPlugin, file: File) {
@@ -159,21 +102,6 @@ object OreConfig {
         // Fallback: create minimal default file even if resource isn't packaged
         val cfg = YamlConfiguration()
         cfg.set("settings.speed-multiplier", 1.0)
-        cfg.set("settings.skip-non-replaceable", true)
-        cfg.set(
-            "settings.replaceable-blocks",
-            listOf(
-                "STONE",
-                "DEEPSLATE",
-                "TUFF",
-                "ANDESITE",
-                "DIORITE",
-                "GRANITE",
-                "AIR",
-                "CAVE_AIR"
-            )
-        )
-
         val ores = cfg.createSection("ores")
         for (type in OreType.values()) {
             val sec = ores.createSection(type.key)
@@ -189,36 +117,25 @@ object OreConfig {
 
     private fun ensureOreDefaults(sec: ConfigurationSection, type: OreType): Boolean {
         var changed = false
-        if (!sec.contains("block")) {
-            sec.set("block", defaultOreMaterial(type).name)
-            changed = true
-        }
         if (!sec.contains("depleted")) {
             sec.set("depleted", defaultDepletedMaterial(type).name)
             changed = true
         }
-        if (!sec.contains("respawn-seconds-min")) {
-            sec.set("respawn-seconds-min", defaultMinSeconds(type))
-            changed = true
-        }
-        if (!sec.contains("respawn-seconds-max")) {
-            sec.set("respawn-seconds-max", defaultMaxSeconds(type))
-            changed = true
-        }
-        if (!sec.contains("points")) {
-            sec.set("points", emptyList<String>())
+        if (!sec.contains("respawn-seconds")) {
+            // Migrate from old random min/max config when possible.
+            val legacyMin = if (sec.contains("respawn-seconds-min")) sec.getInt("respawn-seconds-min") else 0
+            val legacyMax = if (sec.contains("respawn-seconds-max")) sec.getInt("respawn-seconds-max") else 0
+            val migrated = if (legacyMin > 0 && legacyMax > 0) {
+                ((legacyMin + legacyMax) / 2.0).toInt().coerceAtLeast(1)
+            } else if (legacyMin > 0) {
+                legacyMin.coerceAtLeast(1)
+            } else {
+                defaultRespawnSeconds(type)
+            }
+            sec.set("respawn-seconds", migrated)
             changed = true
         }
         return changed
-    }
-
-    private fun defaultOreMaterial(type: OreType): Material = when (type) {
-        OreType.COAL -> Material.COAL_ORE
-        OreType.IRON -> Material.IRON_ORE
-        OreType.GOLD -> Material.GOLD_ORE
-        OreType.COPPER -> Material.COPPER_ORE
-        OreType.REDSTONE -> Material.REDSTONE_ORE
-        OreType.DIAMOND -> Material.DIAMOND_ORE
     }
 
     private fun defaultDepletedMaterial(type: OreType): Material = when (type) {
@@ -230,21 +147,13 @@ object OreConfig {
         OreType.DIAMOND -> Material.DEEPSLATE
     }
 
-    private fun defaultMinSeconds(type: OreType): Int = when (type) {
-        OreType.COAL -> 35
-        OreType.COPPER -> 45
-        OreType.IRON -> 55
-        OreType.REDSTONE -> 60
-        OreType.GOLD -> 80
-        OreType.DIAMOND -> 120
-    }
 
-    private fun defaultMaxSeconds(type: OreType): Int = when (type) {
-        OreType.COAL -> 55
-        OreType.COPPER -> 70
-        OreType.IRON -> 80
-        OreType.REDSTONE -> 95
-        OreType.GOLD -> 110
-        OreType.DIAMOND -> 180
+    private fun defaultRespawnSeconds(type: OreType): Int = when (type) {
+        OreType.COAL -> 45
+        OreType.COPPER -> 57
+        OreType.IRON -> 67
+        OreType.REDSTONE -> 77
+        OreType.GOLD -> 95
+        OreType.DIAMOND -> 150
     }
 }

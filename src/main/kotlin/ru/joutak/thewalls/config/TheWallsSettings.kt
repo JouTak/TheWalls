@@ -59,7 +59,16 @@ object TheWallsSettings {
         val teamSectors: Map<TheWallsTeam, CuboidRegion>,
         val centerPoint: SpawnPoint,
         val centerRadius: Double,
+        /**
+         * Regions of walls that block teams during BUILD and are deleted (AIR) when walls open.
+         */
         val walls: List<CuboidRegion>,
+
+        /**
+         * "Fake" walls: permanent, never opened. They always block movement and cannot be broken.
+         * Useful for map boundary walls.
+         */
+        val boundaryWalls: List<CuboidRegion> = emptyList(),
         val guardianSpawns: Map<TheWallsTeam, SpawnPoint>,
 
         // Vanilla world border (like in CreakyWars)
@@ -326,6 +335,9 @@ object TheWallsSettings {
             val wallsRaw = sec["walls"] as? List<*> ?: emptyList<Any>()
             val walls = wallsRaw.mapNotNull { parseCuboid(it) }.map { it.normalized() }
 
+            val boundaryWallsRaw = sec["boundary-walls"] as? List<*> ?: emptyList<Any>()
+            val boundaryWalls = boundaryWallsRaw.mapNotNull { parseCuboid(it) }.map { it.normalized() }
+
             val sectorsRaw = sec["team-sectors"] as? Map<*, *> ?: emptyMap<Any, Any>()
             val teamSectors = mutableMapOf<TheWallsTeam, CuboidRegion>()
             for (team in TheWallsTeam.entries) {
@@ -354,6 +366,7 @@ object TheWallsSettings {
                 centerPoint = centerPoint,
                 centerRadius = centerRadius,
                 walls = walls,
+                boundaryWalls = boundaryWalls,
                 guardianSpawns = guardianSpawns,
                 borderSize = borderSize,
                 borderCenter = borderCenter,

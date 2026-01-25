@@ -20,13 +20,26 @@ object WallBoundaryListener : Listener {
         if (player.world.name != game.worldName) return
         if (game.state != GameState.RUNNING) return
         if (game.isSpectator(player.uniqueId)) return
-        if (!game.isWallsLockedNow()) return
 
         val to = event.to ?: return
         val from = event.from
 
         // Only react on block-level movement (cheaper).
         if (from.blockX == to.blockX && from.blockY == to.blockY && from.blockZ == to.blockZ) return
+
+        // Permanent boundary walls: always block.
+        if (game.doesPathCrossBoundaryWall(from, to)) {
+            // Allow leaving boundary if a player somehow got inside.
+            if (!(game.isInBoundaryWallRegion(from) && !game.isInBoundaryWallRegion(to))) {
+                event.to = from
+                if (game.shouldWarnWall(player.uniqueId)) {
+                    player.sendActionBar(Component.text("Граница карты", NamedTextColor.RED))
+                }
+            }
+            return
+        }
+
+        if (!game.isWallsLockedNow()) return
 
         // Allow leaving a wall region if a player somehow got inside (bad spawns / admin tp).
         if (game.isInWallRegion(from) && !game.isInWallRegion(to)) return
@@ -48,7 +61,6 @@ object WallBoundaryListener : Listener {
         if (player.world.name != game.worldName) return
         if (game.state != GameState.RUNNING) return
         if (game.isSpectator(player.uniqueId)) return
-        if (!game.isWallsLockedNow()) return
 
         // Do not interfere with plugin-controlled teleports (respawn/spawn setup).
         if (event.cause == PlayerTeleportEvent.TeleportCause.PLUGIN) return
@@ -56,6 +68,20 @@ object WallBoundaryListener : Listener {
         val from = event.from
         val to = event.to ?: return
         if (to.world?.name != game.worldName) return
+
+        // Permanent boundary walls: always block (except PLUGIN teleports).
+        if (game.doesPathCrossBoundaryWall(from, to)) {
+            // Allow leaving boundary if somehow inside.
+            if (!(game.isInBoundaryWallRegion(from) && !game.isInBoundaryWallRegion(to))) {
+                event.isCancelled = true
+                if (game.shouldWarnWall(player.uniqueId)) {
+                    player.sendActionBar(Component.text("Граница карты", NamedTextColor.RED))
+                }
+            }
+            return
+        }
+
+        if (!game.isWallsLockedNow()) return
 
         if (!game.doesPathCrossWall(from, to)) return
 

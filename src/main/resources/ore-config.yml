@@ -1,55 +1,27 @@
 settings:
-  # Общий множитель скорости восстановления (1.0 = как задано в respawn-seconds-*)
+  # Общий множитель скорости восстановления (1.0 = как задано в respawn-seconds)
   speed-multiplier: 1.0
 
-  # Разрешённые блоки, которые мы имеем право заменить на руду/потухший
-  replaceable-blocks:
-    - STONEф
-    - DEEPSLATE
-    - TUFF
-    - ANDESITE
-    - DIORITE
-    - GRANITE
-    - AIR
-    - CAVE_AIR
-
-  # Если true — точки на "незаменяемых" блоках не трогаем и не резервируем
-  skip-non-replaceable: true
+  # Теперь точки руд не задаются вручную: плагин сканирует карту (клон мира) и
+  # запоминает все блоки руд. При добыче руда заменяется на depleted и
+  # восстанавливается строго через respawn-seconds.
 
 ores:
   coal:
-    block: COAL_ORE
     depleted: TUFF
-    respawn-seconds-min: 35
-    respawn-seconds-max: 55
-    points: []
+    respawn-seconds: 45
   iron:
-    block: IRON_ORE
     depleted: ANDESITE
-    respawn-seconds-min: 55
-    respawn-seconds-max: 80
-    points: []
+    respawn-seconds: 67
   gold:
-    block: GOLD_ORE
     depleted: DIORITE
-    respawn-seconds-min: 80
-    respawn-seconds-max: 110
-    points: []
+    respawn-seconds: 95
   copper:
-    block: COPPER_ORE
     depleted: GRANITE
-    respawn-seconds-min: 45
-    respawn-seconds-max: 70
-    points: []
+    respawn-seconds: 57
   redstone:
-    block: REDSTONE_ORE
     depleted: COBBLED_DEEPSLATE
-    respawn-seconds-min: 60
-    respawn-seconds-max: 95
-    points: []
+    respawn-seconds: 77
   diamond:
-    block: DIAMOND_ORE
     depleted: DEEPSLATE
-    respawn-seconds-min: 120
-    respawn-seconds-max: 180
-    points: []
+    respawn-seconds: 150
