@@ -46,7 +46,6 @@ class OreController(
         if (nodes.isEmpty()) return null
         lastGenEnabled = isGenerationEnabled()
 
-        // Default: everything is generated (ACTIVE) if generation enabled.
         if (lastGenEnabled) {
             generateAllNow()
         } else {
@@ -219,12 +218,6 @@ class OreController(
                             if (nodes.containsKey(pos)) continue
                             nodes[pos] = Node(type, mat, State.ACTIVE, 0L)
                             counts[type] = (counts[type] ?: 0) + 1
-                            // Ensure the block is the ore itself (it is, but keep consistent)
-                            // and reserve this location from placement.
-                            // depleted block comes from config.
-                            // (no changes here)
-                            //
-                            // We intentionally allow both stone/deepslate variants.
                         }
                     }
                 }

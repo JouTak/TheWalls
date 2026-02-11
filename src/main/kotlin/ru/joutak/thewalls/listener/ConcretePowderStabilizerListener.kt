@@ -6,12 +6,6 @@ import org.bukkit.event.Listener
 import org.bukkit.event.block.BlockPhysicsEvent
 import ru.joutak.thewalls.game.TheWallsGameManager
 
-/**
- * Minecraft treats *_CONCRETE_POWDER as gravity blocks.
- * We want them to stay visually "powder" for depleted ores, but never fall.
- *
- * We do NOT disable physics globally — only inside active TheWalls match worlds.
- */
 object ConcretePowderStabilizerListener : Listener {
 
     @EventHandler(ignoreCancelled = true, priority = EventPriority.HIGHEST)

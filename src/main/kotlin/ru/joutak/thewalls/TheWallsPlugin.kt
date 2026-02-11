@@ -42,10 +42,8 @@ class TheWallsPlugin : JavaPlugin() {
         TheWallsSettings.load(this)
         ScenarioConfig.load(this)
 
-        // Ores (creates plugins/TheWalls/ore-config.yml if missing)
         OreConfig.load(this)
 
-        // MiniGamesAPI infrastructure (queue, lobby items, /ready, /teamselect, etc.)
         MiniGamesCore.initialize(this)
 
         lifecycleManager.registerEventHandler(LifecycleEvents.COMMANDS) { event ->
@@ -67,7 +65,6 @@ class TheWallsPlugin : JavaPlugin() {
         server.pluginManager.registerEvents(FastFurnaceListener, this)
         server.pluginManager.registerEvents(ConcretePowderStabilizerListener, this)
 
-        // Ores
         server.pluginManager.registerEvents(OreRegistry, this)
 
         pollTaskId = Bukkit.getScheduler().runTaskTimer(this, Runnable {
