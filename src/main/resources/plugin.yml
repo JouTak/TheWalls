@@ -3,8 +3,8 @@ version: ${VERSION}
 api-version: ${MINECRAFT_VERSION}
 main: ru.joutak.thewalls.TheWallsPlugin
 description: 'thewalls'
-authors: ['EnderDissa', 'Stunnerer', 's4dnex']
-contributors: ['technosimp']
+authors: ['EnderDissa']
+contributors: []
 website: ${WEBSITE}
 
 depend: [Multiverse-Core]

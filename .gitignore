@@ -120,3 +120,4 @@ runs/
 
 # Kotlin
 /.kotlin/
+/.run/
