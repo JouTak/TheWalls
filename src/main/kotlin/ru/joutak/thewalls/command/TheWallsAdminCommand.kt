@@ -6,7 +6,9 @@ import io.papermc.paper.command.brigadier.CommandSourceStack
 import io.papermc.paper.command.brigadier.Commands
 import net.kyori.adventure.text.Component
 import net.kyori.adventure.text.format.NamedTextColor
+import org.bukkit.Bukkit
 import org.bukkit.entity.Player
+import ru.joutak.thewalls.spectate.AdminSpectateManager
 import ru.joutak.thewalls.game.GameState
 import ru.joutak.thewalls.game.TheWallsGame
 import ru.joutak.thewalls.game.TheWallsGameManager
@@ -283,6 +285,57 @@ object TheWallsAdminCommand {
                     1
                 })
         )
+        .then(
+            Commands.literal("spectate")
+                .executes { ctx ->
+                    val player = ctx.source.sender as? Player
+                        ?: run {
+                            ctx.source.sender.sendMessage(prefixed("Команда доступна только игроку"))
+                            return@executes 1
+                        }
+
+                    val game = resolveGameForSpectate(ctx.source, "here")
+                        ?: run {
+                            ctx.source.sender.sendMessage(prefixed("Нет активных матчей"))
+                            return@executes 1
+                        }
+
+                    AdminSpectateManager.startSpectate(player, game)
+                    1
+                }
+                .then(
+                    Commands.argument("target", StringArgumentType.word())
+                        .executes { ctx ->
+                            val player = ctx.source.sender as? Player
+                                ?: run {
+                                    ctx.source.sender.sendMessage(prefixed("Команда доступна только игроку"))
+                                    return@executes 1
+                                }
+
+                            val token = StringArgumentType.getString(ctx, "target")
+                            val game = resolveGameForSpectate(ctx.source, token)
+                                ?: run {
+                                    ctx.source.sender.sendMessage(prefixed("Матч не найден"))
+                                    return@executes 1
+                                }
+
+                            AdminSpectateManager.startSpectate(player, game)
+                            1
+                        }
+                )
+        )
+        .then(
+            Commands.literal("unspectate")
+                .executes { ctx ->
+                    val player = ctx.source.sender as? Player
+                        ?: run {
+                            ctx.source.sender.sendMessage(prefixed("Команда доступна только игроку"))
+                            return@executes 1
+                        }
+                    AdminSpectateManager.stopSpectate(player, silent = false, forceLobby = false)
+                    1
+                }
+        )
 
     private fun teamArg() = Commands.argument("team", StringArgumentType.word())
 
@@ -297,6 +350,32 @@ object TheWallsAdminCommand {
             "g", "green", "lime" -> TheWallsTeam.GREEN
             else -> null
         }
+    }
+
+    private fun resolveGameForSpectate(source: CommandSourceStack, token: String): TheWallsGame? {
+        val sender = source.sender
+        val t = token.trim()
+        if (t.isBlank() || t.equals("here", ignoreCase = true)) {
+            return resolveGame(source)
+        }
+
+        // 1) Try resolve by player name
+        val targetPlayer = Bukkit.getPlayerExact(t) ?: Bukkit.getPlayer(t)
+        if (targetPlayer != null) {
+            TheWallsGameManager.getGame(targetPlayer.uniqueId)?.let { return it }
+            TheWallsGameManager.getGameByWorld(targetPlayer.world.name)?.let { return it }
+        }
+
+        // 2) Try resolve by arenaId / worldName
+        val active = TheWallsGameManager.getActiveGames()
+        active.firstOrNull { it.arenaId.equals(t, ignoreCase = true) }?.let { return it }
+        active.firstOrNull { it.worldName.equals(t, ignoreCase = true) }?.let { return it }
+
+        sender.sendMessage(prefixed("Матч не найден: $t"))
+        if (active.isNotEmpty()) {
+            sender.sendMessage(prefixed("Активные матчи: " + active.joinToString { "${it.arenaId}:${it.worldName}" }))
+        }
+        return null
     }
 
     private fun resolveGame(source: CommandSourceStack): TheWallsGame? {

@@ -8,10 +8,12 @@ import org.bukkit.GameMode
 import org.bukkit.Location
 import org.bukkit.Material
 import org.bukkit.Sound
+import org.bukkit.World
 import org.bukkit.ChatColor
 import org.bukkit.entity.Entity
 import org.bukkit.entity.Illusioner
 import org.bukkit.persistence.PersistentDataType
+import org.bukkit.util.Vector
 import ru.joutak.thewalls.TheWallsKeys
 import org.bukkit.attribute.Attribute
 import org.bukkit.boss.BarColor
@@ -32,6 +34,7 @@ import ru.joutak.thewalls.config.TheWallsSettings
 import ru.joutak.thewalls.arenas.TheWallsArenaManager
 import ru.joutak.thewalls.ceremony.CeremonyController
 import ru.joutak.thewalls.lobby.LobbyService
+import ru.joutak.thewalls.spectate.AdminSpectateManager
 import ru.joutak.thewalls.ores.OreConfig
 import ru.joutak.thewalls.ores.OreController
 import ru.joutak.thewalls.ores.OreRegistry
@@ -49,6 +52,7 @@ class TheWallsGame(
     private val centerRadius: Double?,
     private val wallRegions: List<TheWallsSettings.CuboidRegion>,
     private val boundaryWallRegions: List<TheWallsSettings.CuboidRegion>,
+    private val adminSpectatePoint: TheWallsSettings.SpawnPoint?,
     private val guardianSpawns: Map<TheWallsTeam, TheWallsSettings.SpawnPoint>,
     private val wallBreakBlocksPerTick: Int,
     private val borderConfigured: Boolean
@@ -92,6 +96,7 @@ class TheWallsGame(
     private val respawnEnabled = BooleanArray(TheWallsTeam.entries.size) { true }
 
     private val spectators = HashSet<UUID>()
+    private val adminSpectators = HashSet<UUID>()
     private val eliminated = HashSet<UUID>()
     private val pendingDeath = HashMap<UUID, DeathPlan>()
 
@@ -174,6 +179,57 @@ class TheWallsGame(
         return teamSpawns[team]?.toLocation(worldName)
     }
 
+
+    fun getCeremonyWorldName(): String? = ceremonyWorldName
+
+    /**
+     * Safe admin view point in the match world.
+     * (High enough so admin doesn't get stuck inside walls/spawns.)
+     */
+    fun getAdminSpectateLocation(): Location {
+        val world = Bukkit.getWorld(worldName) ?: Bukkit.getWorlds().first()
+        val point = adminSpectatePoint?.toLocation(world.name)
+        if (point != null) {
+            // Use exact configured point (tournament observers).
+            val y = point.y.coerceIn((world.minHeight + 1).toDouble(), (world.maxHeight - 2).toDouble())
+            return Location(world, point.x, y, point.z, point.yaw, point.pitch)
+        }
+
+        val base = centerPoint?.toLocation(world.name) ?: world.spawnLocation
+        val y = max(base.y + 20.0, 75.0).coerceAtMost((world.maxHeight - 2).toDouble())
+        return Location(world, base.x, y, base.z, base.yaw, base.pitch)
+    }
+
+    /**
+     * Ceremony spectator point: in front of the podiums, looking at them.
+     * Uses the first podium yaw as "stage facing" reference.
+     */
+    fun getAdminCeremonySpectateLocation(ceremonyWorld: World): Location {
+        val podiums = TheWallsSettings.ceremonyPodiums
+        if (podiums.isEmpty()) {
+            return Location(ceremonyWorld, 0.5, 80.0, 0.5)
+        }
+
+        val norms = podiums.map { it.normalized() }
+        val cx = norms.map { (it.minX + it.maxX) / 2.0 + 0.5 }.average()
+        val cz = norms.map { (it.minZ + it.maxZ) / 2.0 + 0.5 }.average()
+        val stageY = norms.maxOf { it.y } + 2.0
+
+        val yaw = norms.first().yaw
+        val rad = Math.toRadians(yaw.toDouble())
+        val dirX = -kotlin.math.sin(rad)
+        val dirZ = kotlin.math.cos(rad)
+
+        val dist = 12.0
+        val x = cx + dirX * dist
+        val z = cz + dirZ * dist
+        val y = max(stageY + 1.0, 75.0).coerceAtMost((ceremonyWorld.maxHeight - 2).toDouble())
+
+        val loc = Location(ceremonyWorld, x, y, z)
+        loc.direction = Vector(cx - x, (stageY + 1.0) - y, cz - z)
+        return loc
+    }
+
     fun isRespawnEnabled(team: TheWallsTeam): Boolean = respawnEnabled.getOrElse(team.index) { false }
 
     fun getGuardianLives(team: TheWallsTeam): Int = guardianLivesLeft.getOrElse(team.index) { 0 }
@@ -198,7 +254,28 @@ class TheWallsGame(
 
     fun isParticipant(uuid: UUID): Boolean = teamByPlayer.containsKey(uuid)
 
-    fun isSpectator(uuid: UUID): Boolean = spectators.contains(uuid)
+    fun addAdminSpectator(player: Player) {
+        val uuid = player.uniqueId
+        if (!adminSpectators.add(uuid)) return
+        bossBar?.addPlayer(player)
+        matchScoreboard?.addPlayer(player)
+    }
+
+    fun removeAdminSpectator(player: Player) {
+        val uuid = player.uniqueId
+        adminSpectators.remove(uuid)
+        bossBar?.removePlayer(player)
+        matchScoreboard?.removePlayer(player)
+    }
+
+    fun removeAdminSpectator(uuid: UUID) {
+        adminSpectators.remove(uuid)
+        val p = Bukkit.getPlayer(uuid) ?: return
+        bossBar?.removePlayer(p)
+        matchScoreboard?.removePlayer(p)
+    }
+
+    fun isSpectator(uuid: UUID): Boolean = spectators.contains(uuid) || adminSpectators.contains(uuid)
 
     fun isEliminated(uuid: UUID): Boolean = eliminated.contains(uuid)
 
@@ -789,10 +866,12 @@ class TheWallsGame(
             BarStyle.SOLID
         ).also { bar ->
             teamByPlayer.keys.mapNotNull { Bukkit.getPlayer(it) }.forEach { bar.addPlayer(it) }
+            adminSpectators.mapNotNull { Bukkit.getPlayer(it) }.forEach { bar.addPlayer(it) }
         }
 
         matchScoreboard = TheWallsMatchScoreboard(this).also { sb ->
             teamByPlayer.keys.mapNotNull { Bukkit.getPlayer(it) }.forEach { sb.addPlayer(it) }
+            adminSpectators.mapNotNull { Bukkit.getPlayer(it) }.forEach { sb.addPlayer(it) }
         }
 
         if (TheWallsSettings.guardiansEnabled) {
@@ -1548,6 +1627,9 @@ class TheWallsGame(
             }
         }
 
+
+        runCatching { AdminSpectateManager.onCeremonyStarted(this) }
+
         return true
     }
 
@@ -1594,7 +1676,8 @@ class TheWallsGame(
             recordPendingMatchResultIfAny()
         }
 
-        
+        runCatching { AdminSpectateManager.onGameCleanup(this) }
+
         // Teleport players to lobby
         val players = teamByPlayer.keys.mapNotNull { Bukkit.getPlayer(it) }
         players.forEach { player ->
@@ -1613,7 +1696,9 @@ class TheWallsGame(
         // Remove scoreboard from remaining online players
         matchScoreboard?.let { sb ->
             players.forEach { sb.removePlayer(it) }
+            adminSpectators.mapNotNull { Bukkit.getPlayer(it) }.forEach { sb.removePlayer(it) }
         }
+        adminSpectators.clear()
         matchScoreboard = null
 
         TheWallsGameManager.onGameEnd(this)

@@ -93,6 +93,10 @@ arenas:
 
     boundary-walls: []
 
+    # Точка телепорта для /tw spectate (админ-наблюдатели).
+    # Можно указать "x y z" или "x, y, z, yaw, pitch"
+    spectate-point: "22 55 18"
+
     guardian-spawns:
       ORANGE: "-40, 80, 0"
       BLUE: "40, 80, 0"
@@ -100,4 +104,5 @@ arenas:
       GREEN: "0, 80, 40"
 
     # Если задан, будет выставлен vanilla worldborder вокруг центра
-    border-size: 512
+    border:
+      size: 512
