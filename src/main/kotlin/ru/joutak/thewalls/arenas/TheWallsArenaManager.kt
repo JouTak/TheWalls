@@ -156,6 +156,7 @@ object TheWallsArenaManager {
     fun deleteCeremonyWorld(worldName: String) {
         deleteWorld(worldName)
     }
+
     fun deleteArena(worldName: String) {
         arenasByWorld.remove(worldName)
         deleteWorld(worldName)
@@ -171,7 +172,11 @@ object TheWallsArenaManager {
         var deleted = 0
 
         val mvWorldsToDelete = multiverseCore.mvWorldManager.mvWorlds
-            .filter { (it.name.startsWith("tw_game_") || it.name.startsWith("tw_ceremony_")) && !activeWorlds.contains(it.name) }
+            .filter {
+                (it.name.startsWith("tw_game_") || it.name.startsWith("tw_ceremony_")) && !activeWorlds.contains(
+                    it.name
+                )
+            }
             .map { it.name }
             .toSet()
 
@@ -184,7 +189,9 @@ object TheWallsArenaManager {
         // Also remove folders without a registered mv-world (rare, but happens after hard crashes)
         val container = Bukkit.getWorldContainer()
         container.listFiles { f ->
-            f.isDirectory && (f.name.startsWith("tw_game_") || f.name.startsWith("tw_ceremony_")) && !activeWorlds.contains(f.name)
+            f.isDirectory && (f.name.startsWith("tw_game_") || f.name.startsWith("tw_ceremony_")) && !activeWorlds.contains(
+                f.name
+            )
         }?.forEach { dir ->
             try {
                 if (dir.deleteRecursively()) {
@@ -237,12 +244,13 @@ object TheWallsArenaManager {
             }
         }
 
+        val worldDir = File(Bukkit.getWorldContainer(), worldName)
         try {
-            File(Bukkit.getWorldContainer(), worldName).deleteRecursively()
+            if (worldDir.exists()) worldDir.deleteRecursively()
         } catch (_: Exception) {
         }
 
-        return true
+        return !worldDir.exists()
     }
 
     private fun ensureInit() {

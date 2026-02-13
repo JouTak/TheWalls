@@ -3,10 +3,10 @@ version: ${VERSION}
 api-version: ${MINECRAFT_VERSION}
 main: ru.joutak.thewalls.TheWallsPlugin
 description: 'thewalls'
-authors: ['EnderDissa']
-contributors: []
+authors: [ 'EnderDissa' ]
+contributors: [ ]
 website: ${WEBSITE}
 
-depend: [Multiverse-Core]
+depend: [ Multiverse-Core ]
 libraries:
   - 'org.jetbrains.kotlin:kotlin-stdlib:${KOTLIN_VERSION}'

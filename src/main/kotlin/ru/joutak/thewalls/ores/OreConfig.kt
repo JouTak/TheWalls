@@ -5,7 +5,7 @@ import org.bukkit.configuration.ConfigurationSection
 import org.bukkit.configuration.file.YamlConfiguration
 import org.bukkit.plugin.java.JavaPlugin
 import java.io.File
-import java.util.EnumMap
+import java.util.*
 
 object OreConfig {
 
@@ -47,7 +47,7 @@ object OreConfig {
             cfg.getConfigurationSection("ores")!!
         }
 
-        for (type in OreType.values()) {
+        for (type in OreType.entries) {
             val sec = oresSection.getConfigurationSection(type.key) ?: run {
                 oresSection.createSection(type.key)
                 changed = true
@@ -66,7 +66,7 @@ object OreConfig {
         entries.clear()
 
         val oresSection2 = cfg.getConfigurationSection("ores") ?: return
-        for (type in OreType.values()) {
+        for (type in OreType.entries) {
             val sec = oresSection2.getConfigurationSection(type.key) ?: continue
 
             val rawDepletedName = sec.getString("depleted")?.trim()
@@ -108,7 +108,7 @@ object OreConfig {
         val cfg = YamlConfiguration()
         cfg.set("settings.speed-multiplier", 1.0)
         val ores = cfg.createSection("ores")
-        for (type in OreType.values()) {
+        for (type in OreType.entries) {
             val sec = ores.createSection(type.key)
             ensureOreDefaults(sec, type)
         }
@@ -142,9 +142,6 @@ object OreConfig {
         }
         return changed
     }
-
-
-
 
 
     private fun normalizeDepletedMaterial(

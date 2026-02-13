@@ -61,7 +61,7 @@ ceremony:
   enabled: false
   template-world: thewalls_ceremony
   duration-seconds: 12
-  podiums: []
+  podiums: [ ]
 
 # Арены задаются списком. Минимально нужно: id, template-world, team-spawns, team-sectors, center, walls.
 # "walls" — стены, которые должны упасть (разрушаться плагином).
@@ -91,7 +91,7 @@ arenas:
       # Пример: кубоид между секторами
       - "-2, 0, -128; 2, 255, 128"
 
-    boundary-walls: []
+    boundary-walls: [ ]
 
     # Точка телепорта для /tw spectate (админ-наблюдатели).
     # Можно указать "x y z" или "x, y, z, yaw, pitch"

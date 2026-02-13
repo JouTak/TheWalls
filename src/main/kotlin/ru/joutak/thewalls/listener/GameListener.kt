@@ -1,7 +1,10 @@
 package ru.joutak.thewalls.listener
 
-import org.bukkit.entity.Player
+import net.kyori.adventure.text.Component
+import net.kyori.adventure.text.format.NamedTextColor
+import org.bukkit.Bukkit
 import org.bukkit.GameMode
+import org.bukkit.entity.Player
 import org.bukkit.event.EventHandler
 import org.bukkit.event.EventPriority
 import org.bukkit.event.Listener
@@ -9,18 +12,15 @@ import org.bukkit.event.block.BlockBreakEvent
 import org.bukkit.event.block.BlockPlaceEvent
 import org.bukkit.event.entity.EntityDamageByEntityEvent
 import org.bukkit.event.entity.PlayerDeathEvent
+import org.bukkit.event.player.PlayerPortalEvent
 import org.bukkit.event.player.PlayerRespawnEvent
+import org.bukkit.event.player.PlayerTeleportEvent
+import org.bukkit.event.world.PortalCreateEvent
 import org.bukkit.projectiles.ProjectileSource
-import net.kyori.adventure.text.Component
-import net.kyori.adventure.text.format.NamedTextColor
+import ru.joutak.thewalls.TheWallsPlugin
 import ru.joutak.thewalls.config.TheWallsSettings
 import ru.joutak.thewalls.game.GameState
 import ru.joutak.thewalls.game.TheWallsGameManager
-import org.bukkit.Bukkit
-import org.bukkit.event.player.PlayerTeleportEvent
-import org.bukkit.event.player.PlayerPortalEvent
-import org.bukkit.event.world.PortalCreateEvent
-import ru.joutak.thewalls.TheWallsPlugin
 
 object GameListener : Listener {
 
@@ -125,6 +125,7 @@ object GameListener : Listener {
             player.sendActionBar(Component.text("Нельзя ломать стены до их разрушения", NamedTextColor.YELLOW))
         }
     }
+
     @EventHandler
     fun onDamage(event: EntityDamageByEntityEvent) {
         val entity = event.entity

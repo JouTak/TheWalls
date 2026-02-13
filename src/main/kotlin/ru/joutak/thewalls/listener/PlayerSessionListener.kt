@@ -5,8 +5,8 @@ import org.bukkit.event.Listener
 import org.bukkit.event.player.PlayerJoinEvent
 import org.bukkit.event.player.PlayerKickEvent
 import org.bukkit.event.player.PlayerQuitEvent
-import ru.joutak.thewalls.ceremony.CeremonyController
 import ru.joutak.minigames.managers.MatchmakingManager
+import ru.joutak.thewalls.ceremony.CeremonyController
 import ru.joutak.thewalls.game.TheWallsGameManager
 import ru.joutak.thewalls.lobby.LobbyService
 

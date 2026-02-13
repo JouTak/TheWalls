@@ -8,11 +8,11 @@ import net.kyori.adventure.text.Component
 import net.kyori.adventure.text.format.NamedTextColor
 import org.bukkit.Bukkit
 import org.bukkit.entity.Player
-import ru.joutak.thewalls.spectate.AdminSpectateManager
 import ru.joutak.thewalls.game.GameState
 import ru.joutak.thewalls.game.TheWallsGame
 import ru.joutak.thewalls.game.TheWallsGameManager
 import ru.joutak.thewalls.game.TheWallsTeam
+import ru.joutak.thewalls.spectate.AdminSpectateManager
 
 object TheWallsAdminCommand {
 
@@ -427,7 +427,6 @@ object TheWallsAdminCommand {
     }
 
 
-    
     private fun sendPhaseList(source: CommandSourceStack, game: TheWallsGame) {
         val s = source.sender
         val phases = game.getScenarioPhases()
@@ -470,7 +469,7 @@ object TheWallsAdminCommand {
         }
     }
 
-private fun prefixed(text: String): Component =
+    private fun prefixed(text: String): Component =
         Component.text("[TheWalls] ", NamedTextColor.YELLOW)
             .append(Component.text(text, NamedTextColor.GRAY))
 }

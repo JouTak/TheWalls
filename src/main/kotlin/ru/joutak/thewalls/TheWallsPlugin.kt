@@ -12,19 +12,11 @@ import ru.joutak.thewalls.command.TheWallsAdminCommand
 import ru.joutak.thewalls.config.ScenarioConfig
 import ru.joutak.thewalls.config.TheWallsSettings
 import ru.joutak.thewalls.game.TheWallsGameManager
-import ru.joutak.thewalls.listener.CenterRestrictionListener
-import ru.joutak.thewalls.listener.ConcretePowderStabilizerListener
-import ru.joutak.thewalls.spectate.AdminSpectateListener
-import ru.joutak.thewalls.spectate.AdminSpectateManager
-import ru.joutak.thewalls.listener.FastFurnaceListener
-import ru.joutak.thewalls.listener.GameListener
-import ru.joutak.thewalls.listener.GuardianListener
-import ru.joutak.thewalls.listener.PlayerSessionListener
-import ru.joutak.thewalls.listener.SectorBoundaryListener
-import ru.joutak.thewalls.listener.SpectatorRestrictionListener
-import ru.joutak.thewalls.listener.WallBoundaryListener
+import ru.joutak.thewalls.listener.*
 import ru.joutak.thewalls.ores.OreConfig
 import ru.joutak.thewalls.ores.OreRegistry
+import ru.joutak.thewalls.spectate.AdminSpectateListener
+import ru.joutak.thewalls.spectate.AdminSpectateManager
 
 class TheWallsPlugin : JavaPlugin() {
     companion object {

@@ -7,7 +7,7 @@ import org.bukkit.scoreboard.DisplaySlot
 import org.bukkit.scoreboard.Objective
 import org.bukkit.scoreboard.Scoreboard
 import ru.joutak.thewalls.config.TheWallsSettings
-import java.util.UUID
+import java.util.*
 
 @Suppress("DEPRECATION")
 class TheWallsMatchScoreboard(private val game: TheWallsGame) {
@@ -114,7 +114,7 @@ class TheWallsMatchScoreboard(private val game: TheWallsGame) {
     private fun colorize(text: String): String = ChatColor.translateAlternateColorCodes('&', text)
 
     private fun uniqueEntry(colored: String, idx: Int): String {
-        val codes = ChatColor.values()
+        val codes = ChatColor.entries.toTypedArray()
         val tail = codes[(idx + 1) % codes.size].toString()
         return colored + tail
     }

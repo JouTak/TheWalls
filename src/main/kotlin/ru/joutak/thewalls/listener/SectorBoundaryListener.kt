@@ -29,7 +29,6 @@ object SectorBoundaryListener : Listener {
         val team = game.getTeam(player.uniqueId) ?: return
         if (game.isInTeamSector(team, to)) return
 
-        event.isCancelled = true
         event.to = from
 
         if (game.shouldWarnSector(player.uniqueId)) {

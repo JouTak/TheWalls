@@ -6,8 +6,8 @@ import org.bukkit.Location
 import org.bukkit.Material
 import org.bukkit.plugin.java.JavaPlugin
 import ru.joutak.minigames.domain.GameInstanceConfig
-import ru.joutak.thewalls.game.TheWallsTeam
 import ru.joutak.thewalls.ceremony.CeremonyPodium
+import ru.joutak.thewalls.game.TheWallsTeam
 
 object TheWallsSettings {
 
@@ -386,16 +386,20 @@ object TheWallsSettings {
             val borderCenterRaw = borderSec?.get("center") ?: sec["border-center"] ?: sec["borderCenter"]
             val borderCenter = borderCenterRaw?.let { parseSpawn(it) } ?: centerPoint
 
-            val borderDamageBufferRaw = (borderSec?.get("damage-buffer") ?: sec["border-damage-buffer"] ?: sec["borderDamageBuffer"]) as? Number
+            val borderDamageBufferRaw =
+                (borderSec?.get("damage-buffer") ?: sec["border-damage-buffer"] ?: sec["borderDamageBuffer"]) as? Number
             val borderDamageBuffer = borderDamageBufferRaw?.toDouble() ?: 0.0
 
-            val borderDamageAmountRaw = (borderSec?.get("damage-amount") ?: sec["border-damage-amount"] ?: sec["borderDamageAmount"]) as? Number
+            val borderDamageAmountRaw =
+                (borderSec?.get("damage-amount") ?: sec["border-damage-amount"] ?: sec["borderDamageAmount"]) as? Number
             val borderDamageAmount = borderDamageAmountRaw?.toDouble() ?: 2.0
 
-            val borderWarningDistanceRaw = (borderSec?.get("warning-distance") ?: sec["border-warning-distance"] ?: sec["borderWarningDistance"]) as? Number
+            val borderWarningDistanceRaw = (borderSec?.get("warning-distance") ?: sec["border-warning-distance"]
+            ?: sec["borderWarningDistance"]) as? Number
             val borderWarningDistance = borderWarningDistanceRaw?.toInt() ?: 5
 
-            val borderWarningTimeRaw = (borderSec?.get("warning-time") ?: sec["border-warning-time"] ?: sec["borderWarningTime"]) as? Number
+            val borderWarningTimeRaw =
+                (borderSec?.get("warning-time") ?: sec["border-warning-time"] ?: sec["borderWarningTime"]) as? Number
             val borderWarningTime = borderWarningTimeRaw?.toInt() ?: 10
 
             arenas += ArenaConfig(
@@ -459,7 +463,8 @@ object TheWallsSettings {
             }
 
             if (guardiansEnabled) {
-                val missingGuardian = TheWallsTeam.entries.filter { it !in arena.guardianSpawns && it !in arena.teamSpawns }
+                val missingGuardian =
+                    TheWallsTeam.entries.filter { it !in arena.guardianSpawns && it !in arena.teamSpawns }
                 if (missingGuardian.isNotEmpty()) {
                     plugin.logger.warning("[TheWalls] Arena '${arena.id}' has no guardian spawn (and no team spawn fallback) for: ${missingGuardian.joinToString { it.name }}")
                 } else {
@@ -488,6 +493,7 @@ object TheWallsSettings {
             )
         }
     }
+
     private fun parseSpawn(raw: Any?, defaultY: Double = 65.0): SpawnPoint {
         if (raw == null) return SpawnPoint(0.0, defaultY, 0.0, 0f, 0f)
 
@@ -499,14 +505,25 @@ object TheWallsSettings {
                 val p3 = raw.getOrNull(3)
                 val p4 = raw.getOrNull(4)
 
-                val x = (p0 as? Number)?.toDouble() ?: p0?.toString()?.trim()?.trim('[',']','(',')')?.toDoubleOrNull() ?: 0.0
-                val y = (p1 as? Number)?.toDouble() ?: p1?.toString()?.trim()?.trim('[',']','(',')')?.toDoubleOrNull() ?: defaultY
-                val z = (p2 as? Number)?.toDouble() ?: p2?.toString()?.trim()?.trim('[',']','(',')')?.toDoubleOrNull() ?: 0.0
-                val yaw = (p3 as? Number)?.toFloat() ?: p3?.toString()?.trim()?.trim('[',']','(',')')?.toFloatOrNull() ?: 0f
-                val pitch = (p4 as? Number)?.toFloat() ?: p4?.toString()?.trim()?.trim('[',']','(',')')?.toFloatOrNull() ?: 0f
+                val x =
+                    (p0 as? Number)?.toDouble() ?: p0?.toString()?.trim()?.trim('[', ']', '(', ')')?.toDoubleOrNull()
+                    ?: 0.0
+                val y =
+                    (p1 as? Number)?.toDouble() ?: p1?.toString()?.trim()?.trim('[', ']', '(', ')')?.toDoubleOrNull()
+                    ?: defaultY
+                val z =
+                    (p2 as? Number)?.toDouble() ?: p2?.toString()?.trim()?.trim('[', ']', '(', ')')?.toDoubleOrNull()
+                    ?: 0.0
+                val yaw =
+                    (p3 as? Number)?.toFloat() ?: p3?.toString()?.trim()?.trim('[', ']', '(', ')')?.toFloatOrNull()
+                    ?: 0f
+                val pitch =
+                    (p4 as? Number)?.toFloat() ?: p4?.toString()?.trim()?.trim('[', ']', '(', ')')?.toFloatOrNull()
+                    ?: 0f
 
                 return SpawnPoint(x, y, z, yaw, pitch)
             }
+
             is Map<*, *> -> {
                 val x = (raw["x"] as? Number)?.toDouble() ?: raw["x"]?.toString()?.toDoubleOrNull() ?: 0.0
                 val y = (raw["y"] as? Number)?.toDouble() ?: raw["y"]?.toString()?.toDoubleOrNull() ?: defaultY
@@ -526,7 +543,7 @@ object TheWallsSettings {
             cleaned.split(',')
         } else {
             cleaned.split(Regex("\\s+"))
-        }.map { it.trim().trim('[',']','(',')') }.filter { it.isNotBlank() }
+        }.map { it.trim().trim('[', ']', '(', ')') }.filter { it.isNotBlank() }
 
         val x = parts.getOrNull(0)?.toDoubleOrNull() ?: 0.0
         val y = parts.getOrNull(1)?.toDoubleOrNull() ?: defaultY
@@ -607,8 +624,10 @@ object TheWallsSettings {
                 val maxZ = (raw.getOrNull(4) as? Number)?.toInt()
                     ?: raw.getOrNull(4)?.toString()?.toIntOrNull()
                     ?: return null
-                val yaw = (raw.getOrNull(5) as? Number)?.toFloat() ?: raw.getOrNull(5)?.toString()?.toFloatOrNull() ?: 0f
-                val pitch = (raw.getOrNull(6) as? Number)?.toFloat() ?: raw.getOrNull(6)?.toString()?.toFloatOrNull() ?: 0f
+                val yaw =
+                    (raw.getOrNull(5) as? Number)?.toFloat() ?: raw.getOrNull(5)?.toString()?.toFloatOrNull() ?: 0f
+                val pitch =
+                    (raw.getOrNull(6) as? Number)?.toFloat() ?: raw.getOrNull(6)?.toString()?.toFloatOrNull() ?: 0f
                 return CeremonyPodium(minX, y, minZ, maxX, maxZ, yaw, pitch)
             }
         }
@@ -629,17 +648,24 @@ object TheWallsSettings {
         val pitch = parts.getOrNull(6)?.toFloatOrNull() ?: 0f
         return CeremonyPodium(minX, y, minZ, maxX, maxZ, yaw, pitch)
     }
+
     private fun parseCuboid(raw: Any?): CuboidRegion? {
         if (raw == null) return null
 
         if (raw is List<*>) {
             if (raw.size < 6) return null
-            val n0 = (raw.getOrNull(0) as? Number)?.toInt() ?: raw.getOrNull(0)?.toString()?.toIntOrNull() ?: return null
-            val n1 = (raw.getOrNull(1) as? Number)?.toInt() ?: raw.getOrNull(1)?.toString()?.toIntOrNull() ?: return null
-            val n2 = (raw.getOrNull(2) as? Number)?.toInt() ?: raw.getOrNull(2)?.toString()?.toIntOrNull() ?: return null
-            val n3 = (raw.getOrNull(3) as? Number)?.toInt() ?: raw.getOrNull(3)?.toString()?.toIntOrNull() ?: return null
-            val n4 = (raw.getOrNull(4) as? Number)?.toInt() ?: raw.getOrNull(4)?.toString()?.toIntOrNull() ?: return null
-            val n5 = (raw.getOrNull(5) as? Number)?.toInt() ?: raw.getOrNull(5)?.toString()?.toIntOrNull() ?: return null
+            val n0 =
+                (raw.getOrNull(0) as? Number)?.toInt() ?: raw.getOrNull(0)?.toString()?.toIntOrNull() ?: return null
+            val n1 =
+                (raw.getOrNull(1) as? Number)?.toInt() ?: raw.getOrNull(1)?.toString()?.toIntOrNull() ?: return null
+            val n2 =
+                (raw.getOrNull(2) as? Number)?.toInt() ?: raw.getOrNull(2)?.toString()?.toIntOrNull() ?: return null
+            val n3 =
+                (raw.getOrNull(3) as? Number)?.toInt() ?: raw.getOrNull(3)?.toString()?.toIntOrNull() ?: return null
+            val n4 =
+                (raw.getOrNull(4) as? Number)?.toInt() ?: raw.getOrNull(4)?.toString()?.toIntOrNull() ?: return null
+            val n5 =
+                (raw.getOrNull(5) as? Number)?.toInt() ?: raw.getOrNull(5)?.toString()?.toIntOrNull() ?: return null
             return CuboidRegion(n0, n1, n2, n3, n4, n5)
         }
 

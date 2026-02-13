@@ -3,43 +3,35 @@ package ru.joutak.thewalls.game
 import net.kyori.adventure.text.Component
 import net.kyori.adventure.text.format.NamedTextColor
 import net.kyori.adventure.title.Title
-import org.bukkit.Bukkit
-import org.bukkit.GameMode
-import org.bukkit.Location
-import org.bukkit.Material
-import org.bukkit.Sound
-import org.bukkit.World
-import org.bukkit.ChatColor
-import org.bukkit.entity.Entity
-import org.bukkit.entity.Illusioner
-import org.bukkit.persistence.PersistentDataType
-import org.bukkit.util.Vector
-import ru.joutak.thewalls.TheWallsKeys
+import org.bukkit.*
 import org.bukkit.attribute.Attribute
 import org.bukkit.boss.BarColor
 import org.bukkit.boss.BarStyle
 import org.bukkit.boss.BossBar
+import org.bukkit.entity.Entity
+import org.bukkit.entity.Illusioner
 import org.bukkit.entity.Player
-import ru.joutak.minigames.domain.GameInstance
-import ru.joutak.minigames.managers.MatchmakingManager
+import org.bukkit.persistence.PersistentDataType
+import org.bukkit.util.Vector
 import ru.joutak.minigames.MiniGamesAPI
+import ru.joutak.minigames.domain.GameInstance
 import ru.joutak.minigames.results.model.MatchContext
-import ru.joutak.minigames.results.model.MatchResult
 import ru.joutak.minigames.results.model.Metric
 import ru.joutak.minigames.results.model.PlayerResult
+import ru.joutak.minigames.results.model.MatchResult
 import ru.joutak.minigames.results.model.TeamResult
+import ru.joutak.thewalls.TheWallsKeys
 import ru.joutak.thewalls.TheWallsPlugin
-import ru.joutak.thewalls.config.ScenarioConfig
-import ru.joutak.thewalls.config.TheWallsSettings
 import ru.joutak.thewalls.arenas.TheWallsArenaManager
 import ru.joutak.thewalls.ceremony.CeremonyController
+import ru.joutak.thewalls.config.ScenarioConfig
+import ru.joutak.thewalls.config.TheWallsSettings
 import ru.joutak.thewalls.lobby.LobbyService
-import ru.joutak.thewalls.spectate.AdminSpectateManager
-import ru.joutak.thewalls.ores.OreConfig
 import ru.joutak.thewalls.ores.OreController
 import ru.joutak.thewalls.ores.OreRegistry
+import ru.joutak.thewalls.spectate.AdminSpectateManager
 import java.time.Duration
-import java.util.UUID
+import java.util.*
 import kotlin.math.max
 
 class TheWallsGame(
@@ -62,6 +54,7 @@ class TheWallsGame(
         TEMP_RESPAWN,
         ELIMINATED
     }
+
     @Volatile
     var state: GameState = GameState.WAITING
         private set
@@ -240,7 +233,8 @@ class TheWallsGame(
 
     fun isWallsLockedNow(): Boolean = state == GameState.RUNNING && (getCurrentPhase()?.wallsLocked == true)
 
-    fun isCenterLockedNow(): Boolean = state == GameState.RUNNING && (getCurrentPhase()?.centerLocked == true) && centerRadiusSq > 0
+    fun isCenterLockedNow(): Boolean =
+        state == GameState.RUNNING && (getCurrentPhase()?.centerLocked == true) && centerRadiusSq > 0
 
     fun isPvpEnabledNow(): Boolean = state == GameState.RUNNING && (getCurrentPhase()?.pvpEnabled ?: true)
 
@@ -291,7 +285,7 @@ class TheWallsGame(
         val victimId = victim.uniqueId
 
         // Kill attribution (best-effort)
-        val damagerEntry = lastDamager[victimId]
+        val damagerEntry = lastDamager.remove(victimId)
         if (damagerEntry != null) {
             val damagerId = damagerEntry.first
             val timeMs = damagerEntry.second
@@ -339,7 +333,7 @@ class TheWallsGame(
                 if (!useSpectator) {
                     clearSpectator(player)
                     // If this was a last-chance respawn, consume it immediately.
-                    if (team != null && !isRespawnEnabled(team)) {
+                    if (!isRespawnEnabled(team)) {
                         lastChanceRespawn.remove(playerId)
                     }
                     return
@@ -528,7 +522,10 @@ class TheWallsGame(
 
             val p = Bukkit.getPlayer(uuid) ?: continue
             p.sendMessage(
-                Component.text("Последний шанс! У команды больше нет возрождения, но у вас есть 1 последняя жизнь.", NamedTextColor.YELLOW)
+                Component.text(
+                    "Последний шанс! У команды больше нет возрождения, но у вас есть 1 последняя жизнь.",
+                    NamedTextColor.YELLOW
+                )
             )
         }
     }
@@ -726,7 +723,6 @@ class TheWallsGame(
         lastChanceRespawn.remove(uuid)
         spectators.remove(uuid)
         eliminated.remove(uuid)
-        lastChanceRespawn.remove(uuid)
 
         teamByPlayer.remove(uuid)
         lastDamager.remove(uuid)
@@ -1202,7 +1198,6 @@ class TheWallsGame(
 
     private fun tryEndIfOnlyOneTeamLeft() {
         if (state != GameState.RUNNING) return
-        if (state == GameState.ENDING || state == GameState.CLEANUP) return
 
         val aliveTeams = ArrayList<TheWallsTeam>()
         for (team in TheWallsTeam.entries) {
@@ -1852,7 +1847,8 @@ class TheWallsGame(
 
 
     fun getGuardianTeam(entity: Entity): TheWallsTeam? {
-        val raw = entity.persistentDataContainer.get(TheWallsKeys.guardianTeamKey, PersistentDataType.STRING) ?: return null
+        val raw =
+            entity.persistentDataContainer.get(TheWallsKeys.guardianTeamKey, PersistentDataType.STRING) ?: return null
         return try {
             TheWallsTeam.valueOf(raw)
         } catch (_: Exception) {
@@ -1946,7 +1942,7 @@ class TheWallsGame(
         }
     }
 
-    
+
     fun adminSetPhaseIndex(targetIndex: Int): Boolean {
         if (state != GameState.RUNNING) return false
         if (phases.isEmpty()) return false

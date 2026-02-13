@@ -5,11 +5,7 @@ import org.bukkit.GameMode
 import org.bukkit.event.EventHandler
 import org.bukkit.event.EventPriority
 import org.bukkit.event.Listener
-import org.bukkit.event.player.PlayerChangedWorldEvent
-import org.bukkit.event.player.PlayerGameModeChangeEvent
-import org.bukkit.event.player.PlayerKickEvent
-import org.bukkit.event.player.PlayerQuitEvent
-import org.bukkit.event.player.PlayerTeleportEvent
+import org.bukkit.event.player.*
 import ru.joutak.thewalls.TheWallsPlugin
 
 object AdminSpectateListener : Listener {

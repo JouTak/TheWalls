@@ -12,10 +12,12 @@ import org.bukkit.event.inventory.InventoryClickEvent
 import org.bukkit.event.player.PlayerDropItemEvent
 import org.bukkit.event.player.PlayerInteractEntityEvent
 import org.bukkit.event.player.PlayerInteractEvent
+import org.bukkit.event.player.PlayerKickEvent
+import org.bukkit.event.player.PlayerQuitEvent
 import org.bukkit.event.player.PlayerSwapHandItemsEvent
 import ru.joutak.thewalls.game.GameState
 import ru.joutak.thewalls.game.TheWallsGameManager
-import java.util.UUID
+import java.util.*
 
 object SpectatorRestrictionListener : Listener {
 
@@ -89,5 +91,15 @@ object SpectatorRestrictionListener : Listener {
         val player = event.entity as? Player ?: return
         if (!isSpectatorInMatch(player)) return
         event.isCancelled = true
+    }
+
+    @EventHandler
+    fun onQuit(event: PlayerQuitEvent) {
+        warnUntil.remove(event.player.uniqueId)
+    }
+
+    @EventHandler
+    fun onKick(event: PlayerKickEvent) {
+        warnUntil.remove(event.player.uniqueId)
     }
 }

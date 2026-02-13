@@ -6,7 +6,7 @@ import ru.joutak.minigames.domain.GameInstance
 import ru.joutak.thewalls.TheWallsPlugin
 import ru.joutak.thewalls.arenas.TheWallsArenaManager
 import ru.joutak.thewalls.config.TheWallsSettings
-import java.util.UUID
+import java.util.*
 
 object TheWallsGameManager {
 
@@ -20,8 +20,6 @@ object TheWallsGameManager {
     fun getGameByWorld(worldName: String): TheWallsGame? = gamesByWorld[worldName]
 
     fun getActiveGames(): List<TheWallsGame> = gamesByWorld.values.toList()
-
-    fun getBestActiveGame(): TheWallsGame? = gamesByWorld.values.maxByOrNull { it.teamByPlayer.size }
 
     fun createGame(instance: GameInstance) {
         val arenaId = (instance.config.meta["arenaId"] as? String) ?: instance.config.id

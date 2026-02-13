@@ -15,7 +15,7 @@ import ru.joutak.thewalls.ceremony.CeremonyController
 import ru.joutak.thewalls.game.TheWallsGame
 import ru.joutak.thewalls.game.TheWallsGameManager
 import ru.joutak.thewalls.lobby.LobbyService
-import java.util.UUID
+import java.util.*
 
 /**
  * Admin tournament spectate mode (/tw spectate).
