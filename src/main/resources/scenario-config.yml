@@ -1,0 +1,29 @@
+phases:
+  build:
+    order: 1
+    name: Подготовка
+    duration: 600
+    pvp-enabled: false
+    walls-locked: true
+    center-locked: true
+    break-walls-on-start: false
+    ores:
+      generate: true
+      mine: true
+    start-title: Подготовка
+    start-subtitle: Стены и центр закрыты
+    start-message: ''
+  open:
+    order: 2
+    name: Битва
+    duration: 300
+    pvp-enabled: true
+    walls-locked: false
+    center-locked: false
+    break-walls-on-start: true
+    ores:
+      generate: true
+      mine: true
+    start-title: Стены разрушены!
+    start-subtitle: Центр открыт
+    start-message: ''

@@ -1,0 +1,27 @@
+settings:
+  # Общий множитель скорости восстановления (1.0 = как задано в respawn-seconds)
+  speed-multiplier: 1.0
+
+  # Теперь точки руд не задаются вручную: плагин сканирует карту (клон мира) и
+  # запоминает все блоки руд. При добыче руда заменяется на depleted и
+  # восстанавливается строго через respawn-seconds.
+
+ores:
+  coal:
+    depleted: TUFF
+    respawn-seconds: 45
+  iron:
+    depleted: ANDESITE
+    respawn-seconds: 67
+  gold:
+    depleted: DIORITE
+    respawn-seconds: 95
+  copper:
+    depleted: GRANITE
+    respawn-seconds: 57
+  redstone:
+    depleted: COBBLED_DEEPSLATE
+    respawn-seconds: 77
+  diamond:
+    depleted: DEEPSLATE
+    respawn-seconds: 150
