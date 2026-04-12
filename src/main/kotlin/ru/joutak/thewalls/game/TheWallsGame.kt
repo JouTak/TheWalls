@@ -1051,7 +1051,7 @@ class TheWallsGame(
 
         val newSize = maxOf(phase.borderFinalSize, border.size - phase.borderShrinkSpeed)
         if (newSize < border.size) {
-            border.size = newSize
+            border.setSize(newSize, 1L)
         }
     }
 
@@ -1764,7 +1764,7 @@ class TheWallsGame(
                 val block = w.getBlockAt(pos.x, pos.y, pos.z)
                 val type = block.type
                 if (!type.isAir && !protected.contains(type) && !keepBlocks.contains(type)) {
-                    block.type = Material.AIR
+                    block.setBlockData(Bukkit.createBlockData(Material.AIR), false)
                 }
                 wallBreakDoneBlocks++
                 processed++

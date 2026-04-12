@@ -100,6 +100,7 @@ class OreController(
         // Vanilla drops -> directly into player's inventory.
         val tool = player.inventory.itemInMainHand
         val drops = block.getDrops(tool, player)
+        val exp = event.expToDrop
         event.isDropItems = false
 
         if (drops.isNotEmpty()) {
@@ -109,6 +110,12 @@ class OreController(
                     player.world.dropItemNaturally(player.location, item)
                 }
             }
+        }
+
+        if (exp > 0) {
+            val eloc = block.location.add(0.5, 0.5, 0.5)
+            val orb = player.world.spawn(eloc, org.bukkit.entity.ExperienceOrb::class.java)
+            orb.experience = exp
         }
 
         // After vanilla break (block becomes AIR), restore depleted marker.
