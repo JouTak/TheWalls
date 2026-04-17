@@ -144,6 +144,9 @@ object TheWallsSettings {
     var respawnSpectatorMode: Boolean = true
         private set
 
+    var respawnInvulnerabilitySeconds: Int = 3
+        private set
+
     var fastFurnaceEnabled: Boolean = true
         private set
 
@@ -205,6 +208,7 @@ object TheWallsSettings {
 
         cfg.addDefault("respawn.delay-seconds", 5)
         cfg.addDefault("respawn.spectator-mode", true)
+        cfg.addDefault("respawn.invulnerability-seconds", 3)
         cfg.addDefault("fast-furnace.enabled", true)
         cfg.addDefault("fast-furnace.speed-multiplier", 3.0)
         cfg.addDefault("ceremony.enabled", false)
@@ -303,6 +307,7 @@ object TheWallsSettings {
 
         respawnDelaySeconds = cfg.getInt("respawn.delay-seconds", 5).coerceIn(0, 600)
         respawnSpectatorMode = cfg.getBoolean("respawn.spectator-mode", true)
+        respawnInvulnerabilitySeconds = cfg.getInt("respawn.invulnerability-seconds", 3).coerceIn(0, 60)
 
         fastFurnaceEnabled = cfg.getBoolean("fast-furnace.enabled", true)
         fastFurnaceSpeedMultiplier = cfg.getDouble("fast-furnace.speed-multiplier", 3.0).coerceAtLeast(1.0)

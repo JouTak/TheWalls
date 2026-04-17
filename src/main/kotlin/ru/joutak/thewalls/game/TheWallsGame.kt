@@ -12,6 +12,8 @@ import org.bukkit.entity.Entity
 import org.bukkit.entity.Illusioner
 import org.bukkit.entity.Player
 import org.bukkit.persistence.PersistentDataType
+import org.bukkit.potion.PotionEffect
+import org.bukkit.potion.PotionEffectType
 import org.bukkit.util.Vector
 import ru.joutak.minigames.MiniGamesAPI
 import ru.joutak.minigames.domain.GameInstance
@@ -332,6 +334,7 @@ class TheWallsGame(
                 val useSpectator = TheWallsSettings.respawnSpectatorMode && delay > 0
                 if (!useSpectator) {
                     clearSpectator(player)
+                    applyRespawnInvulnerability(player)
                     // If this was a last-chance respawn, consume it immediately.
                     if (!isRespawnEnabled(team)) {
                         lastChanceRespawn.remove(playerId)
@@ -379,6 +382,7 @@ class TheWallsGame(
             player.foodLevel = 20
             player.saturation = 20f
             player.fireTicks = 0
+            applyRespawnInvulnerability(player)
 
             player.sendMessage(
                 Component.text("Вы возродились!", NamedTextColor.GREEN)
@@ -510,6 +514,29 @@ class TheWallsGame(
         tasks[key] = taskId
     }
 
+
+    private fun applyRespawnInvulnerability(player: Player) {
+        val seconds = TheWallsSettings.respawnInvulnerabilitySeconds.coerceAtLeast(0)
+        if (seconds <= 0) return
+
+        val ticks = seconds * 20
+        try {
+            player.noDamageTicks = ticks
+        } catch (_: Throwable) {
+        }
+        try {
+            player.addPotionEffect(
+                PotionEffect(PotionEffectType.RESISTANCE, ticks, 4, false, false, true)
+            )
+        } catch (_: Throwable) {
+        }
+        try {
+            player.sendActionBar(
+                Component.text("Неуязвимость ${seconds}с", NamedTextColor.AQUA)
+            )
+        } catch (_: Throwable) {
+        }
+    }
 
     private fun grantLastChanceForTeam(team: TheWallsTeam) {
         for ((uuid, t) in teamByPlayer) {
@@ -757,6 +784,20 @@ class TheWallsGame(
         teamByPlayer.keys.mapNotNull { Bukkit.getPlayer(it) }.forEach { p ->
             p.closeInventory()
             p.inventory.clear()
+            try {
+                p.inventory.setArmorContents(arrayOfNulls(4))
+            } catch (_: Throwable) {
+            }
+            try {
+                p.activePotionEffects.toList().forEach { eff -> p.removePotionEffect(eff.type) }
+            } catch (_: Throwable) {
+            }
+            try {
+                p.exp = 0f
+                p.level = 0
+                p.totalExperience = 0
+            } catch (_: Throwable) {
+            }
             val maxHealth = p.getAttribute(Attribute.MAX_HEALTH)?.value ?: 20.0
             p.health = maxHealth
             p.foodLevel = 20
@@ -1040,18 +1081,34 @@ class TheWallsGame(
 
 
     private fun tickWorldBorderShrink(phase: GamePhase?) {
-        if (!borderConfigured) return
-        if (phase == null) return
-        if (!phase.borderShrink) return
-        if (phase.borderShrinkSpeed <= 0.0) return
+        // Smooth shrink is scheduled once per phase in applyPhaseBorderShrink().
+        // This method is kept as a no-op for backward-compat and future hooks.
+    }
 
+    private fun applyPhaseBorderShrink(phase: GamePhase) {
+        if (!borderConfigured) return
         val world = Bukkit.getWorld(worldName) ?: return
         val border = world.worldBorder
-        if (border.size <= phase.borderFinalSize) return
 
-        val newSize = maxOf(phase.borderFinalSize, border.size - phase.borderShrinkSpeed)
-        if (newSize < border.size) {
-            border.setSize(newSize, 1L)
+        if (!phase.borderShrink || phase.borderShrinkSpeed <= 0.0) {
+            // Freeze current size (cancel any previously scheduled transition).
+            try {
+                border.setSize(border.size, 0L)
+            } catch (_: Throwable) {
+            }
+            return
+        }
+
+        val currentSize = border.size
+        val finalSize = phase.borderFinalSize.coerceAtLeast(1.0)
+        if (currentSize <= finalSize) return
+
+        // borderShrinkSpeed is interpreted as "blocks per second" of diameter shrink.
+        val diff = currentSize - finalSize
+        val seconds = (diff / phase.borderShrinkSpeed).toLong().coerceAtLeast(1L)
+        try {
+            border.setSize(finalSize, seconds)
+        } catch (_: Throwable) {
         }
     }
 
@@ -1122,6 +1179,8 @@ class TheWallsGame(
         if (phase.breakWallsOnStart) {
             startWallBreakTask()
         }
+
+        applyPhaseBorderShrink(phase)
 
         if (!announce) return
 
@@ -1877,6 +1936,7 @@ class TheWallsGame(
         }
 
         val nameRaw = ChatColor.translateAlternateColorCodes('&', TheWallsSettings.guardianName)
+        val max = TheWallsSettings.guardianMaxHealth
         val entity = w.spawn(loc, Illusioner::class.java) { e ->
             e.persistentDataContainer.set(TheWallsKeys.guardianTeamKey, PersistentDataType.STRING, team.name)
             e.customName = "${team.color}$nameRaw"
@@ -1885,15 +1945,30 @@ class TheWallsGame(
             e.isPersistent = true
             e.canPickupItems = false
 
-            val max = TheWallsSettings.guardianMaxHealth
-            e.getAttribute(Attribute.MAX_HEALTH)?.baseValue = max
             try {
-                e.health = max
-            } catch (_: Exception) {
+                e.setAI(true)
+            } catch (_: Throwable) {
             }
+            try {
+                e.isInvulnerable = false
+            } catch (_: Throwable) {
+            }
+
+            e.getAttribute(Attribute.MAX_HEALTH)?.baseValue = max
         }
 
-        guardianEntityIds[team.index] = entity.uniqueId
+        // Force HP to max after spawn (in some server versions vanilla resets health post-spawn).
+        val entityId = entity.uniqueId
+        Bukkit.getScheduler().runTask(TheWallsPlugin.instance, Runnable {
+            val live = Bukkit.getEntity(entityId) as? org.bukkit.entity.LivingEntity ?: return@Runnable
+            try {
+                live.getAttribute(Attribute.MAX_HEALTH)?.baseValue = max
+                live.health = max
+            } catch (_: Throwable) {
+            }
+        })
+
+        guardianEntityIds[team.index] = entityId
     }
 
     fun handleGuardianKilled(team: TheWallsTeam, killer: Player?) {
