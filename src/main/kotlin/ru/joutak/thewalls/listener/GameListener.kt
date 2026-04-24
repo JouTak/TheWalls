@@ -9,7 +9,9 @@ import org.bukkit.event.EventHandler
 import org.bukkit.event.EventPriority
 import org.bukkit.event.Listener
 import org.bukkit.event.block.BlockBreakEvent
+import org.bukkit.event.block.BlockExplodeEvent
 import org.bukkit.event.block.BlockPlaceEvent
+import org.bukkit.event.entity.EntityExplodeEvent
 import org.bukkit.entity.TNTPrimed
 import org.bukkit.event.entity.EntityDamageByEntityEvent
 import org.bukkit.event.entity.EntityDamageEvent
@@ -125,6 +127,32 @@ object GameListener : Listener {
         if (game.isWallsLockedNow() && game.isInWallRegion(event.block.location)) {
             event.isCancelled = true
             player.sendActionBar(Component.text("Нельзя ломать стены до их разрушения", NamedTextColor.YELLOW))
+        }
+    }
+
+    @EventHandler
+    fun onEntityExplode(event: EntityExplodeEvent) {
+        val world = event.location.world ?: return
+        val game = TheWallsGameManager.getGameByWorld(world.name) ?: return
+        val wallsLocked = game.isWallsLockedNow()
+
+        event.blockList().removeIf { block ->
+            if (game.isInBoundaryWallRegion(block.location)) return@removeIf true
+            if (wallsLocked && game.isInWallRegion(block.location)) return@removeIf true
+            false
+        }
+    }
+
+    @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
+    fun onBlockExplode(event: BlockExplodeEvent) {
+        val world = event.block.world
+        val game = TheWallsGameManager.getGameByWorld(world.name) ?: return
+        val wallsLocked = game.isWallsLockedNow()
+
+        event.blockList().removeIf { block ->
+            if (game.isInBoundaryWallRegion(block.location)) return@removeIf true
+            if (wallsLocked && game.isInWallRegion(block.location)) return@removeIf true
+            false
         }
     }
 

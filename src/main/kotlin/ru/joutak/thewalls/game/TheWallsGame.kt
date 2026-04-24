@@ -1918,8 +1918,13 @@ class TheWallsGame(
     private fun spawnAllGuardians() {
         for (team in TheWallsTeam.entries) {
             if (guardianLivesLeft.getOrElse(team.index) { 0 } <= 0) continue
+            if (!hasAnyPlayersInTeam(team)) continue
             spawnGuardian(team)
         }
+    }
+
+    private fun hasAnyPlayersInTeam(team: TheWallsTeam): Boolean {
+        return teamByPlayer.values.any { it == team }
     }
 
     private fun spawnGuardian(team: TheWallsTeam) {
@@ -1958,12 +1963,19 @@ class TheWallsGame(
         }
 
         // Force HP to max after spawn (in some server versions vanilla resets health post-spawn).
+        // Also apply a permanent glowing effect so guardians are visible through walls.
         val entityId = entity.uniqueId
         Bukkit.getScheduler().runTask(TheWallsPlugin.instance, Runnable {
             val live = Bukkit.getEntity(entityId) as? org.bukkit.entity.LivingEntity ?: return@Runnable
             try {
                 live.getAttribute(Attribute.MAX_HEALTH)?.baseValue = max
                 live.health = max
+            } catch (_: Throwable) {
+            }
+            try {
+                live.addPotionEffect(
+                    PotionEffect(PotionEffectType.GLOWING, Int.MAX_VALUE, 0, false, false, false)
+                )
             } catch (_: Throwable) {
             }
         })
@@ -2005,6 +2017,7 @@ class TheWallsGame(
             val taskId = Bukkit.getScheduler().runTaskLater(TheWallsPlugin.instance, Runnable {
                 if (state != GameState.RUNNING) return@Runnable
                 if (guardianLivesLeft.getOrElse(team.index) { 0 } <= 0) return@Runnable
+                if (!hasAnyPlayersInTeam(team)) return@Runnable
                 spawnGuardian(team)
             }, (respawnSeconds.coerceAtLeast(0) * 20L)).taskId
             tasks[key] = taskId
