@@ -80,6 +80,16 @@ object TheWallsArenaManager {
         } catch (_: Throwable) {
         }
 
+        // Match-friendly gamerules: keep inventory on death, no advancement spam.
+        try {
+            world.setGameRule(org.bukkit.GameRule.KEEP_INVENTORY, true)
+        } catch (_: Throwable) {
+        }
+        try {
+            world.setGameRule(org.bukkit.GameRule.ANNOUNCE_ADVANCEMENTS, false)
+        } catch (_: Throwable) {
+        }
+
         val cfg = TheWallsSettings.arenasById[arenaId]
 
         // Configure vanilla world border (optional, per arena)

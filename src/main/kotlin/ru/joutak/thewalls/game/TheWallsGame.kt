@@ -1091,11 +1091,9 @@ class TheWallsGame(
         val border = world.worldBorder
 
         if (!phase.borderShrink || phase.borderShrinkSpeed <= 0.0) {
-            // Freeze current size (cancel any previously scheduled transition).
-            try {
-                border.setSize(border.size, 0L)
-            } catch (_: Throwable) {
-            }
+            // Do NOT freeze the border here. Freezing via setSize(size, 0L) on every
+            // non-shrink phase produced visible "stutters" when phases alternated.
+            // The previous shrink animation will continue toward its scheduled target.
             return
         }
 
@@ -1105,7 +1103,8 @@ class TheWallsGame(
 
         // borderShrinkSpeed is interpreted as "blocks per second" of diameter shrink.
         val diff = currentSize - finalSize
-        val seconds = (diff / phase.borderShrinkSpeed).toLong().coerceAtLeast(1L)
+        val secondsExact = diff / phase.borderShrinkSpeed
+        val seconds = kotlin.math.ceil(secondsExact).toLong().coerceAtLeast(1L)
         try {
             border.setSize(finalSize, seconds)
         } catch (_: Throwable) {
