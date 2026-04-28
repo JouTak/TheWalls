@@ -1850,10 +1850,35 @@ class TheWallsGame(
 
             if (cursor.isDone()) {
                 cancelTask("walls")
+                triggerWaterFlowAroundWalls(w, regions)
             }
         }, 1L, 1L).taskId
 
         tasks["walls"] = taskId
+    }
+
+    private fun triggerWaterFlowAroundWalls(world: org.bukkit.World, regions: List<TheWallsSettings.CuboidRegion>) {
+        for (r in regions) {
+            val minX = r.minX - 1
+            val maxX = r.maxX + 1
+            val minY = (r.minY - 1).coerceAtLeast(world.minHeight)
+            val maxY = (r.maxY + 1).coerceAtMost(world.maxHeight - 1)
+            val minZ = r.minZ - 1
+            val maxZ = r.maxZ + 1
+            for (x in minX..maxX) {
+                for (y in minY..maxY) {
+                    for (z in minZ..maxZ) {
+                        // Skip the interior — those are now AIR.
+                        if (x in r.minX..r.maxX && y in r.minY..r.maxY && z in r.minZ..r.maxZ) continue
+                        if (!world.isChunkLoaded(x shr 4, z shr 4)) continue
+                        val block = world.getBlockAt(x, y, z)
+                        if (block.type == org.bukkit.Material.WATER) {
+                            block.setType(org.bukkit.Material.WATER, true)
+                        }
+                    }
+                }
+            }
+        }
     }
 
     private data class BlockPos(val x: Int, val y: Int, val z: Int)
