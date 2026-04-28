@@ -11,7 +11,8 @@ object OreConfig {
 
     data class OreEntry(
         val depletedBlock: Material,
-        val respawnSeconds: Int
+        val respawnSeconds: Int,
+        val xpDrop: Int
     )
 
     var speedMultiplier: Double = 1.0
@@ -83,9 +84,12 @@ object OreConfig {
                 sec.getInt("respawn-seconds-min", defaultRespawnSeconds(type))
             ).coerceAtLeast(1)
 
+            val xp = sec.getInt("xp-drop", defaultXpDrop(type)).coerceAtLeast(0)
+
             entries[type] = OreEntry(
                 depletedBlock = depletedMat,
-                respawnSeconds = secS
+                respawnSeconds = secS,
+                xpDrop = xp
             )
         }
 
@@ -124,6 +128,10 @@ object OreConfig {
         var changed = false
         if (!sec.contains("depleted")) {
             sec.set("depleted", defaultDepletedMaterial(type).name)
+            changed = true
+        }
+        if (!sec.contains("xp-drop")) {
+            sec.set("xp-drop", defaultXpDrop(type))
             changed = true
         }
         if (!sec.contains("respawn-seconds")) {
@@ -172,6 +180,15 @@ object OreConfig {
         OreType.DIAMOND -> Material.DEEPSLATE
     }
 
+
+    private fun defaultXpDrop(type: OreType): Int = when (type) {
+        OreType.COAL -> 5
+        OreType.COPPER -> 7
+        OreType.IRON -> 10
+        OreType.REDSTONE -> 12
+        OreType.GOLD -> 18
+        OreType.DIAMOND -> 30
+    }
 
     private fun defaultRespawnSeconds(type: OreType): Int = when (type) {
         OreType.COAL -> 45

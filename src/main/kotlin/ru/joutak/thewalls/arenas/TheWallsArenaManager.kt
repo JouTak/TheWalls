@@ -80,13 +80,19 @@ object TheWallsArenaManager {
         } catch (_: Throwable) {
         }
 
-        // Match-friendly gamerules: keep inventory on death, no advancement spam.
+        // Match-friendly gamerules: keep inventory on death, no advancement spam,
+        // and disable mob spawning until the match actually starts. Spawning will
+        // be re-enabled in TheWallsGame.beginRunning().
         try {
             world.setGameRule(org.bukkit.GameRule.KEEP_INVENTORY, true)
         } catch (_: Throwable) {
         }
         try {
             world.setGameRule(org.bukkit.GameRule.ANNOUNCE_ADVANCEMENTS, false)
+        } catch (_: Throwable) {
+        }
+        try {
+            world.setGameRule(org.bukkit.GameRule.DO_MOB_SPAWNING, false)
         } catch (_: Throwable) {
         }
 

@@ -105,7 +105,7 @@ object TheWallsSettings {
     var matchBuildSeconds: Int = 600
         private set
 
-    var matchDifficulty: Difficulty = Difficulty.NORMAL
+    var matchDifficulty: Difficulty = Difficulty.HARD
         private set
 
     var wallBreakBlocksPerTick: Int = 8000
@@ -180,7 +180,7 @@ object TheWallsSettings {
         cfg.addDefault("match.duration-seconds", 900)
         cfg.addDefault("match.total-seconds", 900)
         cfg.addDefault("match.build-seconds", 600)
-        cfg.addDefault("match.difficulty", "NORMAL")
+        cfg.addDefault("match.difficulty", "HARD")
         cfg.addDefault("match.walls.blocks-per-tick", 8000)
         cfg.addDefault("match.walls.keep-blocks", emptyList<String>())
 
@@ -258,10 +258,10 @@ object TheWallsSettings {
             .coerceIn(0, maxOf(0, matchTotalSeconds - 1))
 
         matchDifficulty = try {
-            Difficulty.valueOf(cfg.getString("match.difficulty", "NORMAL")!!.trim().uppercase())
+            Difficulty.valueOf(cfg.getString("match.difficulty", "HARD")!!.trim().uppercase())
         } catch (_: Exception) {
-            plugin.logger.warning("[TheWalls] Unknown match.difficulty in config.yml. Using NORMAL")
-            Difficulty.NORMAL
+            plugin.logger.warning("[TheWalls] Unknown match.difficulty in config.yml. Using HARD")
+            Difficulty.HARD
         }
 
         wallBreakBlocksPerTick = cfg.getInt("match.walls.blocks-per-tick", 8000)
