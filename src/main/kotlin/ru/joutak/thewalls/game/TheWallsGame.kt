@@ -877,13 +877,6 @@ class TheWallsGame(
         if (state != GameState.COUNTDOWN) return
         state = GameState.RUNNING
 
-        // Enable mob spawning now that the match has actually started. While the
-        // arena world existed (cloning, countdown) it had do-mob-spawning=false.
-        try {
-            Bukkit.getWorld(worldName)?.setGameRule(org.bukkit.GameRule.DO_MOB_SPAWNING, true)
-        } catch (_: Throwable) {
-        }
-
         val nowMs = System.currentTimeMillis()
         if (startedAtMs <= 0L) startedAtMs = nowMs
         for ((uuid, team) in teamByPlayer) {
