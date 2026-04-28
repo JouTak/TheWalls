@@ -5,6 +5,7 @@ enum class OreType(val key: String) {
     IRON("iron"),
     GOLD("gold"),
     COPPER("copper"),
+    LAPIS("lapis"),
     REDSTONE("redstone"),
     DIAMOND("diamond")
 }

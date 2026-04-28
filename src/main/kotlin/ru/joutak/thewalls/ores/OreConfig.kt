@@ -176,6 +176,7 @@ object OreConfig {
         OreType.IRON -> Material.ANDESITE
         OreType.GOLD -> Material.DIORITE
         OreType.COPPER -> Material.GRANITE
+        OreType.LAPIS -> Material.CALCITE
         OreType.REDSTONE -> Material.COBBLED_DEEPSLATE
         OreType.DIAMOND -> Material.DEEPSLATE
     }
@@ -186,6 +187,7 @@ object OreConfig {
         OreType.COPPER -> 7
         OreType.IRON -> 10
         OreType.REDSTONE -> 12
+        OreType.LAPIS -> 14
         OreType.GOLD -> 18
         OreType.DIAMOND -> 30
     }
@@ -195,6 +197,7 @@ object OreConfig {
         OreType.COPPER -> 57
         OreType.IRON -> 67
         OreType.REDSTONE -> 77
+        OreType.LAPIS -> 80
         OreType.GOLD -> 95
         OreType.DIAMOND -> 150
     }

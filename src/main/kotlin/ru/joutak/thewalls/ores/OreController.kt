@@ -271,6 +271,7 @@ class OreController(
         Material.IRON_ORE, Material.DEEPSLATE_IRON_ORE -> OreType.IRON
         Material.GOLD_ORE, Material.DEEPSLATE_GOLD_ORE -> OreType.GOLD
         Material.COPPER_ORE, Material.DEEPSLATE_COPPER_ORE -> OreType.COPPER
+        Material.LAPIS_ORE, Material.DEEPSLATE_LAPIS_ORE -> OreType.LAPIS
         Material.REDSTONE_ORE, Material.DEEPSLATE_REDSTONE_ORE -> OreType.REDSTONE
         Material.DIAMOND_ORE, Material.DEEPSLATE_DIAMOND_ORE -> OreType.DIAMOND
         else -> null

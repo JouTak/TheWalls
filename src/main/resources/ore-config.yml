@@ -19,6 +19,9 @@ ores:
   copper:
     depleted: GRANITE
     respawn-seconds: 57
+  lapis:
+    depleted: CALCITE
+    respawn-seconds: 80
   redstone:
     depleted: COBBLED_DEEPSLATE
     respawn-seconds: 77
