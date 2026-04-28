@@ -117,9 +117,6 @@ object TheWallsSettings {
     var friendlyFireEnabled: Boolean = false
         private set
 
-    var pvpInBuildEnabled: Boolean = false
-        private set
-
     var protectedBlocks: Set<Material> = emptySet()
         private set
 
@@ -184,7 +181,6 @@ object TheWallsSettings {
         cfg.addDefault("match.walls.keep-blocks", emptyList<String>())
 
         cfg.addDefault("match.rules.friendly-fire", false)
-        cfg.addDefault("match.rules.pvp-in-build", false)
         cfg.addDefault(
             "match.rules.protected-blocks",
             listOf(
@@ -255,7 +251,6 @@ object TheWallsSettings {
         wallKeepBlocks = keep
 
         friendlyFireEnabled = cfg.getBoolean("match.rules.friendly-fire", false)
-        pvpInBuildEnabled = cfg.getBoolean("match.rules.pvp-in-build", false)
 
         val protectedSet = LinkedHashSet<Material>()
         for (rawName in cfg.getStringList("match.rules.protected-blocks")) {

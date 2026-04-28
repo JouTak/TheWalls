@@ -4,6 +4,8 @@ phases:
     name: Подготовка
     duration: 600
     pvp-enabled: false
+    respawn-enabled: true
+    guardians-enabled: false
     walls-locked: true
     center-locked: true
     break-walls-on-start: false
@@ -18,6 +20,8 @@ phases:
     name: Битва
     duration: 300
     pvp-enabled: true
+    respawn-enabled: true
+    guardians-enabled: true
     walls-locked: false
     center-locked: false
     break-walls-on-start: true

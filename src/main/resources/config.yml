@@ -17,7 +17,6 @@ match:
 
   rules:
     friendly-fire: false
-    pvp-in-build: false
     protected-blocks:
       - BEDROCK
       - BARRIER

@@ -225,7 +225,10 @@ class TheWallsGame(
         return loc
     }
 
-    fun isRespawnEnabled(team: TheWallsTeam): Boolean = respawnEnabled.getOrElse(team.index) { false }
+    fun isRespawnEnabled(team: TheWallsTeam): Boolean {
+        if (!(getCurrentPhase()?.respawnEnabled ?: true)) return false
+        return respawnEnabled.getOrElse(team.index) { false }
+    }
 
     fun getGuardianLives(team: TheWallsTeam): Int = guardianLivesLeft.getOrElse(team.index) { 0 }
 
@@ -918,10 +921,6 @@ class TheWallsGame(
             adminSpectators.mapNotNull { Bukkit.getPlayer(it) }.forEach { sb.addPlayer(it) }
         }
 
-        if (TheWallsSettings.guardiansEnabled) {
-            spawnAllGuardians()
-        }
-
         initOresIfNeeded()
 
         val taskId = Bukkit.getScheduler().runTaskTimer(TheWallsPlugin.instance, Runnable {
@@ -1056,7 +1055,9 @@ class TheWallsGame(
                 name = "Подготовка",
                 durationSeconds = buildSeconds.toLong(),
                 endAtSecond = null,
-                pvpEnabled = TheWallsSettings.pvpInBuildEnabled,
+                pvpEnabled = false,
+                respawnEnabled = true,
+                guardiansEnabled = false,
                 wallsLocked = true,
                 centerLocked = true,
                 breakWallsOnStart = false,
@@ -1073,6 +1074,8 @@ class TheWallsGame(
                 durationSeconds = openSeconds.toLong(),
                 endAtSecond = null,
                 pvpEnabled = true,
+                respawnEnabled = true,
+                guardiansEnabled = true,
                 wallsLocked = false,
                 centerLocked = false,
                 breakWallsOnStart = true,
@@ -1184,6 +1187,10 @@ class TheWallsGame(
 
         if (phase.breakWallsOnStart) {
             startWallBreakTask()
+        }
+
+        if (phase.guardiansEnabled && TheWallsSettings.guardiansEnabled) {
+            spawnAllGuardians()
         }
 
         applyPhaseBorderShrink(phase)
