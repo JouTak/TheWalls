@@ -133,6 +133,10 @@ object TheWallsArenaManager {
             world.setGameRule(org.bukkit.GameRule.SPAWN_CHUNK_RADIUS, 0)
         } catch (_: Throwable) {
         }
+        try {
+            Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "mvrule spawner_blocks_work true ${world.name}")
+        } catch (_: Throwable) {
+        }
 
         val cfg = TheWallsSettings.arenasById[arenaId]
 

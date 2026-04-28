@@ -72,12 +72,9 @@ object OreConfig {
 
             val rawDepletedName = sec.getString("depleted")?.trim()
 
-            val parsedDepleted = rawDepletedName?.let {
+            val depletedMat = rawDepletedName?.let {
                 runCatching { Material.valueOf(it.uppercase()) }.getOrNull()
             } ?: defaultDepletedMaterial(type)
-
-            val depletedMat = normalizeDepletedMaterial(plugin, type, parsedDepleted, rawDepletedName)
-
 
             val secS = sec.getInt(
                 "respawn-seconds",

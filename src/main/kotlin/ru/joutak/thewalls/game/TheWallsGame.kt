@@ -1858,23 +1858,28 @@ class TheWallsGame(
     }
 
     private fun triggerWaterFlowAroundWalls(world: org.bukkit.World, regions: List<TheWallsSettings.CuboidRegion>) {
+        val wMinY = world.minHeight
+        val wMaxY = world.maxHeight - 1
         for (r in regions) {
-            val minX = r.minX - 1
-            val maxX = r.maxX + 1
-            val minY = (r.minY - 1).coerceAtLeast(world.minHeight)
-            val maxY = (r.maxY + 1).coerceAtMost(world.maxHeight - 1)
-            val minZ = r.minZ - 1
-            val maxZ = r.maxZ + 1
-            for (x in minX..maxX) {
-                for (y in minY..maxY) {
-                    for (z in minZ..maxZ) {
-                        // Skip the interior — those are now AIR.
-                        if (x in r.minX..r.maxX && y in r.minY..r.maxY && z in r.minZ..r.maxZ) continue
+            val rMinY = r.minY.coerceIn(wMinY, wMaxY)
+            val rMaxY = r.maxY.coerceIn(wMinY, wMaxY)
+            for (x in (r.minX - 1)..(r.maxX + 1)) {
+                for (y in (rMinY - 1).coerceAtLeast(wMinY)..(rMaxY + 1).coerceAtMost(wMaxY)) {
+                    for (z in (r.minZ - 1)..(r.maxZ + 1)) {
+                        if (x in r.minX..r.maxX && y in rMinY..rMaxY && z in r.minZ..r.maxZ) continue
                         if (!world.isChunkLoaded(x shr 4, z shr 4)) continue
-                        val block = world.getBlockAt(x, y, z)
-                        if (block.type == org.bukkit.Material.WATER) {
-                            block.setType(org.bukkit.Material.WATER, true)
-                        }
+                        if (world.getBlockAt(x, y, z).type != org.bukkit.Material.WATER) continue
+                        // Found water adjacent to the wall. Nudge the nearest inside-wall block
+                        // using CAVE_AIR→AIR: visually identical to AIR but a different block
+                        // state, so Minecraft won't skip the neighborChanged notification.
+                        val nx = x.coerceIn(r.minX, r.maxX)
+                        val ny = y.coerceIn(rMinY, rMaxY)
+                        val nz = z.coerceIn(r.minZ, r.maxZ)
+                        if (!world.isChunkLoaded(nx shr 4, nz shr 4)) continue
+                        val inner = world.getBlockAt(nx, ny, nz)
+                        if (!inner.type.isAir) continue
+                        inner.setType(org.bukkit.Material.CAVE_AIR, false)
+                        inner.setType(org.bukkit.Material.AIR, true)
                     }
                 }
             }
