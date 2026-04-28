@@ -177,7 +177,6 @@ object TheWallsSettings {
         cfg.addDefault("lobby.spawn", "0, 65, 0, 0, 0")
         cfg.addDefault("players-per-team", 4)
         cfg.addDefault("match.countdown-seconds", 10)
-        cfg.addDefault("match.duration-seconds", 900)
         cfg.addDefault("match.total-seconds", 900)
         cfg.addDefault("match.build-seconds", 600)
         cfg.addDefault("match.difficulty", "HARD")
@@ -216,23 +215,6 @@ object TheWallsSettings {
         cfg.addDefault("ceremony.duration-seconds", 12)
         cfg.addDefault("ceremony.podiums", emptyList<String>())
 
-        // Migration from old configs (left patches)
-
-        var migrated = false
-        if (cfg.contains("furnace-speed.enabled") && !cfg.contains("fast-furnace.enabled")) {
-            cfg.set("fast-furnace.enabled", cfg.getBoolean("furnace-speed.enabled"))
-            migrated = true
-        }
-        if (cfg.contains("furnace-speed.speed-multiplier") && !cfg.contains("fast-furnace.speed-multiplier")) {
-            cfg.set("fast-furnace.speed-multiplier", cfg.getDouble("furnace-speed.speed-multiplier"))
-            migrated = true
-        }
-        if (migrated) {
-            plugin.logger.info("[TheWalls] Migrated config keys: furnace-speed -> fast-furnace")
-        }
-
-
-
         cfg.options().copyDefaults(true)
         plugin.saveConfig()
 
@@ -244,14 +226,7 @@ object TheWallsSettings {
 
         playersPerTeam = cfg.getInt("players-per-team", 4).coerceAtLeast(1)
         countdownSeconds = cfg.getInt("match.countdown-seconds", 10).coerceAtLeast(0)
-
-        // Backward compatibility: duration-seconds is treated as total-seconds if total-seconds is absent.
-        val total = if (cfg.contains("match.total-seconds")) {
-            cfg.getInt("match.total-seconds", 900)
-        } else {
-            cfg.getInt("match.duration-seconds", 900)
-        }
-        matchTotalSeconds = total.coerceAtLeast(10)
+        matchTotalSeconds = cfg.getInt("match.total-seconds", 900).coerceAtLeast(10)
 
         val defaultBuild = minOf(600, maxOf(0, matchTotalSeconds - 60))
         matchBuildSeconds = cfg.getInt("match.build-seconds", defaultBuild)
@@ -363,8 +338,7 @@ object TheWallsSettings {
             val boundaryWallsRaw = sec["boundary-walls"] as? List<*> ?: emptyList<Any>()
             val boundaryWalls = boundaryWallsRaw.mapNotNull { parseCuboid(it) }.map { it.normalized() }
 
-            val spectateRaw = sec["spectate-point"] ?: sec["admin-spectate-point"]
-            val adminSpectatePoint = spectateRaw?.let { parseSpawn(it) }
+            val adminSpectatePoint = sec["spectate-point"]?.let { parseSpawn(it) }
 
             val sectorsRaw = sec["team-sectors"] as? Map<*, *> ?: emptyMap<Any, Any>()
             val teamSectors = mutableMapOf<TheWallsTeam, CuboidRegion>()
@@ -377,35 +351,14 @@ object TheWallsSettings {
                     if (r != null) teamSectors[team] = r
                 }
             }
-            // Vanilla world border (optional, per arena)
-            // Supports both the new nested section:
-            //   border: { size: 512, center: "0 80 0" }
-            // and legacy flat keys used by some configs:
-            //   border-size: 512
-            //   border-center: "0 80 0"
             val borderSec = sec["border"] as? Map<*, *>
 
-            val borderSizeRaw = (borderSec?.get("size") ?: sec["border-size"] ?: sec["borderSize"]) as? Number
-            val borderSize = borderSizeRaw?.toDouble()?.takeIf { it > 1.0 }
-
-            val borderCenterRaw = borderSec?.get("center") ?: sec["border-center"] ?: sec["borderCenter"]
-            val borderCenter = borderCenterRaw?.let { parseSpawn(it) } ?: centerPoint
-
-            val borderDamageBufferRaw =
-                (borderSec?.get("damage-buffer") ?: sec["border-damage-buffer"] ?: sec["borderDamageBuffer"]) as? Number
-            val borderDamageBuffer = borderDamageBufferRaw?.toDouble() ?: 0.0
-
-            val borderDamageAmountRaw =
-                (borderSec?.get("damage-amount") ?: sec["border-damage-amount"] ?: sec["borderDamageAmount"]) as? Number
-            val borderDamageAmount = borderDamageAmountRaw?.toDouble() ?: 2.0
-
-            val borderWarningDistanceRaw = (borderSec?.get("warning-distance") ?: sec["border-warning-distance"]
-            ?: sec["borderWarningDistance"]) as? Number
-            val borderWarningDistance = borderWarningDistanceRaw?.toInt() ?: 5
-
-            val borderWarningTimeRaw =
-                (borderSec?.get("warning-time") ?: sec["border-warning-time"] ?: sec["borderWarningTime"]) as? Number
-            val borderWarningTime = borderWarningTimeRaw?.toInt() ?: 10
+            val borderSize = (borderSec?.get("size") as? Number)?.toDouble()?.takeIf { it > 1.0 }
+            val borderCenter = borderSec?.get("center")?.let { parseSpawn(it) } ?: centerPoint
+            val borderDamageBuffer = (borderSec?.get("damage-buffer") as? Number)?.toDouble() ?: 0.0
+            val borderDamageAmount = (borderSec?.get("damage-amount") as? Number)?.toDouble() ?: 2.0
+            val borderWarningDistance = (borderSec?.get("warning-distance") as? Number)?.toInt() ?: 5
+            val borderWarningTime = (borderSec?.get("warning-time") as? Number)?.toInt() ?: 10
 
             arenas += ArenaConfig(
                 id = id,

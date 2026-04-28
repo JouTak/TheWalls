@@ -80,9 +80,6 @@ object TheWallsArenaManager {
         } catch (_: Throwable) {
         }
 
-        // Match-friendly gamerules: keep inventory on death, no advancement spam,
-        // and disable mob spawning until the match actually starts. Spawning will
-        // be re-enabled in TheWallsGame.beginRunning().
         try {
             world.setGameRule(org.bukkit.GameRule.KEEP_INVENTORY, true)
         } catch (_: Throwable) {
@@ -91,8 +88,49 @@ object TheWallsArenaManager {
             world.setGameRule(org.bukkit.GameRule.ANNOUNCE_ADVANCEMENTS, false)
         } catch (_: Throwable) {
         }
+        // Mob spawning disabled until match starts; re-enabled in TheWallsGame.beginRunning().
         try {
             world.setGameRule(org.bukkit.GameRule.DO_MOB_SPAWNING, false)
+        } catch (_: Throwable) {
+        }
+        try {
+            world.setGameRule(org.bukkit.GameRule.DO_DAYLIGHT_CYCLE, false)
+        } catch (_: Throwable) {
+        }
+        try {
+            world.setGameRule(org.bukkit.GameRule.DO_WEATHER_CYCLE, false)
+        } catch (_: Throwable) {
+        }
+        try {
+            world.setGameRule(org.bukkit.GameRule.MOB_GRIEFING, false)
+        } catch (_: Throwable) {
+        }
+        try {
+            world.setGameRule(org.bukkit.GameRule.SPECTATORS_GENERATE_CHUNKS, false)
+        } catch (_: Throwable) {
+        }
+        try {
+            world.setGameRule(org.bukkit.GameRule.DO_PATROL_SPAWNING, false)
+        } catch (_: Throwable) {
+        }
+        try {
+            world.setGameRule(org.bukkit.GameRule.DO_TRADER_SPAWNING, false)
+        } catch (_: Throwable) {
+        }
+        try {
+            world.setGameRule(org.bukkit.GameRule.DO_WARDEN_SPAWNING, false)
+        } catch (_: Throwable) {
+        }
+        try {
+            world.setGameRule(org.bukkit.GameRule.SHOW_DEATH_MESSAGES, false)
+        } catch (_: Throwable) {
+        }
+        try {
+            world.setGameRule(org.bukkit.GameRule.ENDER_PEARLS_VANISH_ON_DEATH, true)
+        } catch (_: Throwable) {
+        }
+        try {
+            world.setGameRule(org.bukkit.GameRule.SPAWN_CHUNK_RADIUS, 0)
         } catch (_: Throwable) {
         }
 
@@ -158,11 +196,24 @@ object TheWallsArenaManager {
 
         world = world ?: return null
 
-        // Ceremony world should be safe and stable
         try {
-            world.setGameRuleValue("doMobSpawning", "false")
-            world.setGameRuleValue("doDaylightCycle", "false")
-            world.setGameRuleValue("doWeatherCycle", "false")
+            world.setGameRule(org.bukkit.GameRule.DO_MOB_SPAWNING, false)
+        } catch (_: Throwable) {
+        }
+        try {
+            world.setGameRule(org.bukkit.GameRule.DO_DAYLIGHT_CYCLE, false)
+        } catch (_: Throwable) {
+        }
+        try {
+            world.setGameRule(org.bukkit.GameRule.DO_WEATHER_CYCLE, false)
+        } catch (_: Throwable) {
+        }
+        try {
+            world.setGameRule(org.bukkit.GameRule.MOB_GRIEFING, false)
+        } catch (_: Throwable) {
+        }
+        try {
+            world.setGameRule(org.bukkit.GameRule.SPECTATORS_GENERATE_CHUNKS, false)
         } catch (_: Throwable) {
         }
 
