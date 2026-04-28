@@ -9,8 +9,12 @@ import org.bukkit.event.EventHandler
 import org.bukkit.event.EventPriority
 import org.bukkit.event.Listener
 import org.bukkit.event.block.BlockBreakEvent
+import org.bukkit.event.block.BlockExplodeEvent
 import org.bukkit.event.block.BlockPlaceEvent
+import org.bukkit.event.entity.EntityExplodeEvent
+import org.bukkit.entity.TNTPrimed
 import org.bukkit.event.entity.EntityDamageByEntityEvent
+import org.bukkit.event.entity.EntityDamageEvent
 import org.bukkit.event.entity.PlayerDeathEvent
 import org.bukkit.event.player.PlayerPortalEvent
 import org.bukkit.event.player.PlayerRespawnEvent
@@ -123,6 +127,32 @@ object GameListener : Listener {
         if (game.isWallsLockedNow() && game.isInWallRegion(event.block.location)) {
             event.isCancelled = true
             player.sendActionBar(Component.text("Нельзя ломать стены до их разрушения", NamedTextColor.YELLOW))
+        }
+    }
+
+    @EventHandler
+    fun onEntityExplode(event: EntityExplodeEvent) {
+        val world = event.location.world ?: return
+        val game = TheWallsGameManager.getGameByWorld(world.name) ?: return
+        val wallsLocked = game.isWallsLockedNow()
+
+        event.blockList().removeIf { block ->
+            if (game.isInBoundaryWallRegion(block.location)) return@removeIf true
+            if (wallsLocked && game.isInWallRegion(block.location)) return@removeIf true
+            false
+        }
+    }
+
+    @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
+    fun onBlockExplode(event: BlockExplodeEvent) {
+        val world = event.block.world
+        val game = TheWallsGameManager.getGameByWorld(world.name) ?: return
+        val wallsLocked = game.isWallsLockedNow()
+
+        event.blockList().removeIf { block ->
+            if (game.isInBoundaryWallRegion(block.location)) return@removeIf true
+            if (wallsLocked && game.isInWallRegion(block.location)) return@removeIf true
+            false
         }
     }
 
@@ -274,6 +304,74 @@ object GameListener : Listener {
         try {
             player.spectatorTarget = null
         } catch (_: Throwable) {
+        }
+    }
+
+    @EventHandler
+    fun onNonPvpEnvironmentalDamage(event: EntityDamageEvent) {
+        val victim = event.entity as? Player ?: return
+        val game = TheWallsGameManager.getGame(victim.uniqueId) ?: return
+        if (victim.world.name != game.worldName) return
+        if (game.state != GameState.RUNNING) return
+        if (!game.isParticipant(victim.uniqueId)) return
+        if (game.isSpectator(victim.uniqueId)) return
+        if (game.isPvpEnabledNow()) return
+
+        when (event.cause) {
+            EntityDamageEvent.DamageCause.FALL,
+            EntityDamageEvent.DamageCause.LAVA,
+            EntityDamageEvent.DamageCause.FIRE,
+            EntityDamageEvent.DamageCause.FIRE_TICK,
+            EntityDamageEvent.DamageCause.HOT_FLOOR,
+            EntityDamageEvent.DamageCause.SUFFOCATION,
+            EntityDamageEvent.DamageCause.DROWNING,
+            EntityDamageEvent.DamageCause.CONTACT,
+            EntityDamageEvent.DamageCause.FREEZE,
+            EntityDamageEvent.DamageCause.MAGIC,
+            EntityDamageEvent.DamageCause.POISON,
+            EntityDamageEvent.DamageCause.WITHER,
+            EntityDamageEvent.DamageCause.STARVATION -> {
+                event.isCancelled = true
+            }
+            else -> {}
+        }
+    }
+
+    @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
+    fun onExplosionFriendlyFire(event: EntityDamageByEntityEvent) {
+        val victim = event.entity as? Player ?: return
+        val game = TheWallsGameManager.getGame(victim.uniqueId) ?: return
+        if (victim.world.name != game.worldName) return
+        if (game.state != GameState.RUNNING) return
+        if (!game.isParticipant(victim.uniqueId) || game.isSpectator(victim.uniqueId)) return
+
+        val cause = event.cause
+        if (cause != EntityDamageEvent.DamageCause.ENTITY_EXPLOSION &&
+            cause != EntityDamageEvent.DamageCause.BLOCK_EXPLOSION
+        ) return
+
+        val sourcePlayer: Player? = when (val d = event.damager) {
+            is Player -> d
+            is TNTPrimed -> d.source as? Player
+            else -> {
+                val proj = d as? org.bukkit.entity.Projectile
+                val shooter = proj?.shooter as? ProjectileSource
+                shooter as? Player
+            }
+        }
+        if (sourcePlayer == null) return
+        if (!game.isParticipant(sourcePlayer.uniqueId)) return
+
+        val victimTeam = game.getTeam(victim.uniqueId) ?: return
+        val sourceTeam = game.getTeam(sourcePlayer.uniqueId) ?: return
+
+        if (!TheWallsSettings.friendlyFireEnabled && victimTeam == sourceTeam && victim.uniqueId != sourcePlayer.uniqueId) {
+            event.isCancelled = true
+            return
+        }
+
+        if (!game.isPvpEnabledNow()) {
+            event.isCancelled = true
         }
     }
 
