@@ -1,6 +1,5 @@
 package ru.joutak.thewalls
 
-import io.papermc.paper.plugin.lifecycle.event.types.LifecycleEvents
 import org.bukkit.Bukkit
 import org.bukkit.plugin.java.JavaPlugin
 import ru.joutak.minigames.MiniGamesCore
@@ -38,8 +37,9 @@ class TheWallsPlugin : JavaPlugin() {
 
         MiniGamesCore.initialize(this)
 
-        lifecycleManager.registerEventHandler(LifecycleEvents.COMMANDS) { event ->
-            event.registrar().register(TheWallsAdminCommand.getBuilder().build())
+        getCommand("tw")?.let {
+            it.setExecutor(TheWallsAdminCommand)
+            it.tabCompleter = TheWallsAdminCommand
         }
 
         TheWallsArenaManager.init()
