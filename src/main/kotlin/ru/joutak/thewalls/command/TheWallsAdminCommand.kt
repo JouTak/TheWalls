@@ -344,8 +344,8 @@ object TheWallsAdminCommand {
         if (s.isBlank()) return null
         TheWallsTeam.entries.firstOrNull { it.name.equals(s, ignoreCase = true) }?.let { return it }
         return when (s.lowercase()) {
-            "o", "orange", "gold", "yellow" -> TheWallsTeam.ORANGE
-            "b", "blue", "aqua", "cyan" -> TheWallsTeam.BLUE
+            "o", "orange", "r", "red" -> TheWallsTeam.ORANGE
+            "b", "blue", "y", "yellow" -> TheWallsTeam.BLUE
             "p", "pink", "magenta", "purple" -> TheWallsTeam.PINK
             "g", "green", "lime" -> TheWallsTeam.GREEN
             else -> null
