@@ -490,13 +490,9 @@ object TheWallsSettings {
         val str = raw.toString().trim()
         if (str.isBlank()) return SpawnPoint(0.0, defaultY, 0.0, 0f, 0f)
 
-        // Support ";" separators and list-like formats: "[x, y, z]"
-        val cleaned = str.replace(';', ',')
-        val parts = if (cleaned.contains(',')) {
-            cleaned.split(',')
-        } else {
-            cleaned.split(Regex("\\s+"))
-        }.map { it.trim().trim('[', ']', '(', ')') }.filter { it.isNotBlank() }
+        val parts = str.split(Regex("[,;\\s]+"))
+            .map { it.trim().trim('[', ']', '(', ')') }
+            .filter { it.isNotBlank() }
 
         val x = parts.getOrNull(0)?.toDoubleOrNull() ?: 0.0
         val y = parts.getOrNull(1)?.toDoubleOrNull() ?: defaultY
@@ -588,8 +584,7 @@ object TheWallsSettings {
         val str = raw.toString().trim()
         if (str.isBlank()) return null
 
-        val cleaned = str.replace(';', ',')
-        val parts = cleaned.split(',').map { it.trim() }.filter { it.isNotBlank() }
+        val parts = str.split(Regex("[,;\\s]+")).map { it.trim() }.filter { it.isNotBlank() }
         if (parts.size < 5) return null
 
         val minX = parts.getOrNull(0)?.toIntOrNull() ?: return null
@@ -625,8 +620,8 @@ object TheWallsSettings {
         val str = raw.toString().trim()
         if (str.isBlank()) return null
 
-        val cleaned = str.replace(';', ',')
-        val parts = cleaned.split(',').map { it.trim() }.filter { it.isNotBlank() }
+        // Accept any mix of commas, semicolons and whitespace as separators.
+        val parts = str.split(Regex("[,;\\s]+")).map { it.trim() }.filter { it.isNotBlank() }
         if (parts.size < 6) return null
 
         val x1 = parts.getOrNull(0)?.toIntOrNull() ?: return null
