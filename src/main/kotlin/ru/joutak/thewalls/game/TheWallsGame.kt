@@ -248,6 +248,10 @@ class TheWallsGame(
         state = GameState.COUNTDOWN
 
         preparePlayersForMatch()
+        // Run the ore world-scan synchronously here, right after teleporting players,
+        // so the server freeze is buried in the expected chunk-loading stutter.
+        // By the time the countdown ends, initOresIfNeeded() in beginRunning() is a no-op.
+        initOresIfNeeded()
         startCountdown()
     }
 
