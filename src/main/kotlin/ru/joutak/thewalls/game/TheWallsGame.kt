@@ -545,9 +545,10 @@ class TheWallsGame(
         for ((uuid, t) in teamByPlayer) {
             if (t != team) continue
             if (eliminated.contains(uuid)) continue
+            // Only players who are currently dead (waiting for respawn) get a last-chance respawn.
+            // Alive players simply continue living but won't respawn after the next death.
+            if (!spectators.contains(uuid)) continue
 
-            // Grant "last chance" to everyone in the team who is still in the match.
-            // If someone is currently waiting for respawn, we keep the timer - it will be allowed once.
             if (!lastChanceRespawn.add(uuid)) continue
 
             val p = Bukkit.getPlayer(uuid) ?: continue
@@ -1680,10 +1681,19 @@ class TheWallsGame(
 
             players.forEachIndexed { slot, player ->
                 val spawn = podium.spawnLocation(ceremonyWorld, slot)
+                // Clear spectator target first so the player isn't locked to another entity's
+                // viewpoint; otherwise cross-world teleport may be silently ignored.
+                try { player.spectatorTarget = null } catch (_: Throwable) {}
                 player.gameMode = GameMode.ADVENTURE
                 player.fallDistance = 0f
                 player.teleport(spawn)
                 CeremonyController.setPlayerBounds(player, ceremonyName, bounds, spawn)
+                // Re-enforce ADVENTURE a tick later: Multiverse can override gameMode on world entry.
+                Bukkit.getScheduler().runTaskLater(TheWallsPlugin.instance, Runnable {
+                    if (player.isOnline && player.world.name == ceremonyName) {
+                        player.gameMode = GameMode.ADVENTURE
+                    }
+                }, 2L)
             }
         }
 
