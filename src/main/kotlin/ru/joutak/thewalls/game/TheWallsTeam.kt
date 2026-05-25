@@ -2,24 +2,17 @@ package ru.joutak.thewalls.game
 
 import net.kyori.adventure.text.format.NamedTextColor
 import org.bukkit.ChatColor
+import ru.joutak.minigames.MiniGamesAPI
+import ru.joutak.minigames.domain.TeamStyle
 
-enum class TheWallsTeam(
-    val index: Int,
-    val displayName: String,
-    val color: ChatColor
-) {
-    ORANGE(0, "Красные", ChatColor.RED),
-    BLUE(1, "Жёлтые", ChatColor.YELLOW),
-    PINK(2, "Розовые", ChatColor.LIGHT_PURPLE),
-    GREEN(3, "Зелёные", ChatColor.GREEN);
+enum class TheWallsTeam(val index: Int) {
+    ORANGE(0), BLUE(1), PINK(2), GREEN(3);
 
-    fun adventureColor(): NamedTextColor = when (color) {
-        ChatColor.RED -> NamedTextColor.RED
-        ChatColor.YELLOW -> NamedTextColor.YELLOW
-        ChatColor.LIGHT_PURPLE -> NamedTextColor.LIGHT_PURPLE
-        ChatColor.GREEN -> NamedTextColor.GREEN
-        else -> NamedTextColor.WHITE
-    }
+    val style: TeamStyle get() = MiniGamesAPI.getTeamStyle(index + 1)
+
+    val displayName: String get() = style.displayNamePlain
+    val color: ChatColor get() = style.chatColor
+    fun adventureColor(): NamedTextColor = style.color
 
     companion object {
         fun byIndex(index: Int): TheWallsTeam? = entries.firstOrNull { it.index == index }
