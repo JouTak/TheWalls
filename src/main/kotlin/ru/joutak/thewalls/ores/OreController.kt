@@ -100,6 +100,9 @@ class OreController(
         // Vanilla drops -> directly into player's inventory.
         val tool = player.inventory.itemInMainHand
         val drops = block.getDrops(tool, player)
+
+        // Disable vanilla XP drop for our managed ores; we drive XP from ore-config.
+        event.expToDrop = 0
         event.isDropItems = false
 
         if (drops.isNotEmpty()) {
@@ -109,6 +112,13 @@ class OreController(
                     player.world.dropItemNaturally(player.location, item)
                 }
             }
+        }
+
+        val configuredXp = entry.xpDrop
+        if (configuredXp > 0) {
+            val eloc = block.location.add(0.5, 0.5, 0.5)
+            val orb = player.world.spawn(eloc, org.bukkit.entity.ExperienceOrb::class.java)
+            orb.experience = configuredXp
         }
 
         // After vanilla break (block becomes AIR), restore depleted marker.
@@ -261,6 +271,7 @@ class OreController(
         Material.IRON_ORE, Material.DEEPSLATE_IRON_ORE -> OreType.IRON
         Material.GOLD_ORE, Material.DEEPSLATE_GOLD_ORE -> OreType.GOLD
         Material.COPPER_ORE, Material.DEEPSLATE_COPPER_ORE -> OreType.COPPER
+        Material.LAPIS_ORE, Material.DEEPSLATE_LAPIS_ORE -> OreType.LAPIS
         Material.REDSTONE_ORE, Material.DEEPSLATE_REDSTONE_ORE -> OreType.REDSTONE
         Material.DIAMOND_ORE, Material.DEEPSLATE_DIAMOND_ORE -> OreType.DIAMOND
         else -> null

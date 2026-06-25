@@ -1,9 +1,13 @@
 package ru.joutak.thewalls.arenas
 
-import com.onarandombox.MultiverseCore.MultiverseCore
 import org.bukkit.Bukkit
 import org.bukkit.World
 import org.bukkit.WorldCreator
+import org.mvplugins.multiverse.core.MultiverseCore
+import org.mvplugins.multiverse.core.MultiverseCoreApi
+import org.mvplugins.multiverse.core.world.options.CloneWorldOptions
+import org.mvplugins.multiverse.core.world.options.DeleteWorldOptions
+import org.mvplugins.multiverse.core.world.options.ImportWorldOptions
 import ru.joutak.minigames.managers.MatchmakingManager
 import ru.joutak.thewalls.TheWallsPlugin
 import ru.joutak.thewalls.config.TheWallsSettings
@@ -52,15 +56,36 @@ object TheWallsArenaManager {
         // If garbage with same name exists (rare, but possible after crashes)
         deleteWorld(worldName)
 
-        val cloned = try {
-            multiverseCore.mvWorldManager.cloneWorld(template.name, worldName)
-        } catch (_: Exception) {
-            false
+        val coreApi = MultiverseCoreApi.get();
+        val worldManager = coreApi.worldManager
+
+        var mvTemplateOption = worldManager.getWorld(templateWorldName)
+
+        if (mvTemplateOption.isEmpty) {
+            val importOptions = ImportWorldOptions.worldName(template.name)
+                .environment(template.environment)
+            val importResult = worldManager.importWorld(importOptions)
+            importResult.onFailure { failure ->
+                deleteWorld(worldName)
+                throw IllegalStateException("Failed to import template world: ${failure.failureMessage}")
+            }
+            mvTemplateOption = worldManager.getWorld(template.name)
         }
 
-        if (!cloned) {
+        val mvTemplate = mvTemplateOption.getOrNull()
+            ?: throw IllegalStateException("Template world not registered in Multiverse")
+
+        val cloneOptions = CloneWorldOptions.fromTo(mvTemplate, worldName)
+            .keepWorldConfig(true)
+            .keepGameRule(false)
+            .keepWorldBorder(true)
+            .saveBukkitWorld(true)
+
+        val cloneResult = worldManager.cloneWorld(cloneOptions)
+
+        cloneResult.onFailure { failure ->
             deleteWorld(worldName)
-            throw IllegalStateException("Failed to clone world '$templateWorldName' -> '$worldName'")
+            throw IllegalStateException("Failed to clone world '$templateWorldName' -> '$worldName': ${failure.failureMessage}")
         }
 
         var world = Bukkit.getWorld(worldName)
@@ -77,6 +102,64 @@ object TheWallsArenaManager {
         // Ensure match world difficulty (especially important for guardians).
         try {
             world.difficulty = TheWallsSettings.matchDifficulty
+        } catch (_: Throwable) {
+        }
+
+        try {
+            world.setGameRule(org.bukkit.GameRule.KEEP_INVENTORY, true)
+        } catch (_: Throwable) {
+        }
+        try {
+            world.setGameRule(org.bukkit.GameRule.ANNOUNCE_ADVANCEMENTS, false)
+        } catch (_: Throwable) {
+        }
+        // Mob spawning disabled until match starts; re-enabled in TheWallsGame.beginRunning().
+        try {
+            world.setGameRule(org.bukkit.GameRule.DO_MOB_SPAWNING, false)
+        } catch (_: Throwable) {
+        }
+        try {
+            world.setGameRule(org.bukkit.GameRule.DO_DAYLIGHT_CYCLE, false)
+        } catch (_: Throwable) {
+        }
+        try {
+            world.setGameRule(org.bukkit.GameRule.DO_WEATHER_CYCLE, false)
+        } catch (_: Throwable) {
+        }
+        try {
+            world.setGameRule(org.bukkit.GameRule.MOB_GRIEFING, false)
+        } catch (_: Throwable) {
+        }
+        try {
+            world.setGameRule(org.bukkit.GameRule.SPECTATORS_GENERATE_CHUNKS, false)
+        } catch (_: Throwable) {
+        }
+        try {
+            world.setGameRule(org.bukkit.GameRule.DO_PATROL_SPAWNING, false)
+        } catch (_: Throwable) {
+        }
+        try {
+            world.setGameRule(org.bukkit.GameRule.DO_TRADER_SPAWNING, false)
+        } catch (_: Throwable) {
+        }
+        try {
+            world.setGameRule(org.bukkit.GameRule.DO_WARDEN_SPAWNING, false)
+        } catch (_: Throwable) {
+        }
+        try {
+            world.setGameRule(org.bukkit.GameRule.SHOW_DEATH_MESSAGES, false)
+        } catch (_: Throwable) {
+        }
+        try {
+            world.setGameRule(org.bukkit.GameRule.ENDER_PEARLS_VANISH_ON_DEATH, true)
+        } catch (_: Throwable) {
+        }
+        try {
+            world.setGameRule(org.bukkit.GameRule.SPAWN_CHUNK_RADIUS, 0)
+        } catch (_: Throwable) {
+        }
+        try {
+            Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "mvrule spawner_blocks_work true ${world.name}")
         } catch (_: Throwable) {
         }
 
@@ -120,15 +203,33 @@ object TheWallsArenaManager {
         // If garbage with same name exists (rare, but possible after crashes)
         deleteWorld(ceremonyWorldName)
 
-        val cloned = try {
-            multiverseCore.mvWorldManager.cloneWorld(template.name, ceremonyWorldName)
-        } catch (_: Exception) {
-            false
+        val coreApi = MultiverseCoreApi.get();
+        val worldManager = coreApi.worldManager
+
+        var mvTemplateOption = worldManager.getWorld(template.name)
+        if (mvTemplateOption.isEmpty) {
+            val importOptions = ImportWorldOptions.worldName(template.name)
+                .environment(template.environment)
+            val importResult = worldManager.importWorld(importOptions)
+            importResult.onFailure { failure ->
+                TheWallsPlugin.instance.logger.severe("[TheWalls] Failed to import template world for ceremony: ${failure.failureMessage}")
+            }
+            mvTemplateOption = worldManager.getWorld(template.name)
         }
 
-        if (!cloned) {
+        val mvTemplate = mvTemplateOption.getOrNull() ?: return null
+
+        val cloneOptions = CloneWorldOptions.fromTo(mvTemplate, ceremonyWorldName)
+            .keepWorldConfig(true)
+            .keepGameRule(false)
+            .keepWorldBorder(true)
+            .saveBukkitWorld(true)
+
+        val cloneResult = worldManager.cloneWorld(cloneOptions)
+
+        cloneResult.onFailure { failure ->
+            TheWallsPlugin.instance.logger.severe("[TheWalls] Failed to clone ceremony world: ${failure.failureMessage}")
             deleteWorld(ceremonyWorldName)
-            return null
         }
 
         var world = Bukkit.getWorld(ceremonyWorldName)
@@ -142,11 +243,24 @@ object TheWallsArenaManager {
 
         world = world ?: return null
 
-        // Ceremony world should be safe and stable
         try {
-            world.setGameRuleValue("doMobSpawning", "false")
-            world.setGameRuleValue("doDaylightCycle", "false")
-            world.setGameRuleValue("doWeatherCycle", "false")
+            world.setGameRule(org.bukkit.GameRule.DO_MOB_SPAWNING, false)
+        } catch (_: Throwable) {
+        }
+        try {
+            world.setGameRule(org.bukkit.GameRule.DO_DAYLIGHT_CYCLE, false)
+        } catch (_: Throwable) {
+        }
+        try {
+            world.setGameRule(org.bukkit.GameRule.DO_WEATHER_CYCLE, false)
+        } catch (_: Throwable) {
+        }
+        try {
+            world.setGameRule(org.bukkit.GameRule.MOB_GRIEFING, false)
+        } catch (_: Throwable) {
+        }
+        try {
+            world.setGameRule(org.bukkit.GameRule.SPECTATORS_GENERATE_CHUNKS, false)
         } catch (_: Throwable) {
         }
 
@@ -171,7 +285,10 @@ object TheWallsArenaManager {
 
         var deleted = 0
 
-        val mvWorldsToDelete = multiverseCore.mvWorldManager.mvWorlds
+        val coreApi = MultiverseCoreApi.get();
+        val worldManager = coreApi.worldManager
+
+        val mvWorldsToDelete = worldManager.worlds
             .filter {
                 (it.name.startsWith("tw_game_") || it.name.startsWith("tw_ceremony_")) && !activeWorlds.contains(
                     it.name
@@ -235,10 +352,14 @@ object TheWallsArenaManager {
         // Delete via Multiverse when possible
         if (this::multiverseCore.isInitialized) {
             try {
-                try {
-                    multiverseCore.mvWorldManager.deleteWorld(worldName, true, true)
-                } catch (_: Throwable) {
-                    multiverseCore.mvWorldManager.deleteWorld(worldName)
+                val coreApi = MultiverseCoreApi.get();
+                val worldManager = coreApi.worldManager
+
+                val mvWorldOption = worldManager.getWorld(worldName)
+
+                if (mvWorldOption.isDefined) {
+                    val deleteOptions = DeleteWorldOptions.world(mvWorldOption.get())
+                    worldManager.deleteWorld(deleteOptions)
                 }
             } catch (_: Exception) {
             }

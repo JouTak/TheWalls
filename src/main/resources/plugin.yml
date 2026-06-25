@@ -10,3 +10,14 @@ website: ${WEBSITE}
 depend: [ Multiverse-Core ]
 libraries:
   - 'org.jetbrains.kotlin:kotlin-stdlib:${KOTLIN_VERSION}'
+
+commands:
+  tw:
+    description: "TheWalls admin utilities"
+    aliases: [ thewalls ]
+    usage: "/tw <status|phase|time|guardian|respawn|end|tp|spectate|unspectate>"
+
+permissions:
+  thewalls.admin:
+    description: "Admin tools for TheWalls"
+    default: op

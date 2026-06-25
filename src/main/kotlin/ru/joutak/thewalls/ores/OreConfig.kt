@@ -11,7 +11,8 @@ object OreConfig {
 
     data class OreEntry(
         val depletedBlock: Material,
-        val respawnSeconds: Int
+        val respawnSeconds: Int,
+        val xpDrop: Int
     )
 
     var speedMultiplier: Double = 1.0
@@ -71,21 +72,21 @@ object OreConfig {
 
             val rawDepletedName = sec.getString("depleted")?.trim()
 
-            val parsedDepleted = rawDepletedName?.let {
+            val depletedMat = rawDepletedName?.let {
                 runCatching { Material.valueOf(it.uppercase()) }.getOrNull()
             } ?: defaultDepletedMaterial(type)
-
-            val depletedMat = normalizeDepletedMaterial(plugin, type, parsedDepleted, rawDepletedName)
-
 
             val secS = sec.getInt(
                 "respawn-seconds",
                 sec.getInt("respawn-seconds-min", defaultRespawnSeconds(type))
             ).coerceAtLeast(1)
 
+            val xp = sec.getInt("xp-drop", defaultXpDrop(type)).coerceAtLeast(0)
+
             entries[type] = OreEntry(
                 depletedBlock = depletedMat,
-                respawnSeconds = secS
+                respawnSeconds = secS,
+                xpDrop = xp
             )
         }
 
@@ -124,6 +125,10 @@ object OreConfig {
         var changed = false
         if (!sec.contains("depleted")) {
             sec.set("depleted", defaultDepletedMaterial(type).name)
+            changed = true
+        }
+        if (!sec.contains("xp-drop")) {
+            sec.set("xp-drop", defaultXpDrop(type))
             changed = true
         }
         if (!sec.contains("respawn-seconds")) {
@@ -168,16 +173,28 @@ object OreConfig {
         OreType.IRON -> Material.ANDESITE
         OreType.GOLD -> Material.DIORITE
         OreType.COPPER -> Material.GRANITE
+        OreType.LAPIS -> Material.CALCITE
         OreType.REDSTONE -> Material.COBBLED_DEEPSLATE
         OreType.DIAMOND -> Material.DEEPSLATE
     }
 
+
+    private fun defaultXpDrop(type: OreType): Int = when (type) {
+        OreType.COAL -> 5
+        OreType.COPPER -> 7
+        OreType.IRON -> 10
+        OreType.REDSTONE -> 12
+        OreType.LAPIS -> 14
+        OreType.GOLD -> 18
+        OreType.DIAMOND -> 30
+    }
 
     private fun defaultRespawnSeconds(type: OreType): Int = when (type) {
         OreType.COAL -> 45
         OreType.COPPER -> 57
         OreType.IRON -> 67
         OreType.REDSTONE -> 77
+        OreType.LAPIS -> 80
         OreType.GOLD -> 95
         OreType.DIAMOND -> 150
     }

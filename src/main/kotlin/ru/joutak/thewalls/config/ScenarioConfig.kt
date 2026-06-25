@@ -62,7 +62,9 @@ object ScenarioConfig {
         yml.set("phases.build.order", 1)
         yml.set("phases.build.name", "Подготовка")
         yml.set("phases.build.duration", buildSeconds)
-        yml.set("phases.build.pvp-enabled", TheWallsSettings.pvpInBuildEnabled)
+        yml.set("phases.build.pvp-enabled", false)
+        yml.set("phases.build.respawn-enabled", true)
+        yml.set("phases.build.guardians-enabled", false)
         yml.set("phases.build.walls-locked", true)
         yml.set("phases.build.center-locked", true)
         yml.set("phases.build.break-walls-on-start", false)
@@ -77,6 +79,8 @@ object ScenarioConfig {
         yml.set("phases.open.name", "Битва")
         yml.set("phases.open.duration", openSeconds)
         yml.set("phases.open.pvp-enabled", true)
+        yml.set("phases.open.respawn-enabled", true)
+        yml.set("phases.open.guardians-enabled", true)
         yml.set("phases.open.walls-locked", false)
         yml.set("phases.open.center-locked", false)
         yml.set("phases.open.break-walls-on-start", true)
@@ -116,6 +120,8 @@ object ScenarioConfig {
             val endAtSecond: Long? = if (section.contains("end-at-second")) section.getLong("end-at-second") else null
 
             val pvpEnabled = section.getBoolean("pvp-enabled", true)
+            val respawnEnabled = section.getBoolean("respawn-enabled", true)
+            val guardiansEnabled = section.getBoolean("guardians-enabled", true)
             val wallsLocked = section.getBoolean("walls-locked", false)
             val centerLocked = section.getBoolean("center-locked", false)
             val breakWallsOnStart = section.getBoolean("break-walls-on-start", false)
@@ -123,7 +129,6 @@ object ScenarioConfig {
             val borderShrink = section.getBoolean("border-shrink", false)
             val borderShrinkSpeed = section.getDouble("border-shrink-speed", 0.1)
             val borderFinalSize = section.getDouble("border-final-size", 20.0)
-
 
             val startTitle = section.getString("start-title", "") ?: ""
             val startSubtitle = section.getString("start-subtitle", "") ?: ""
@@ -135,6 +140,8 @@ object ScenarioConfig {
                 durationSeconds = durationSeconds,
                 endAtSecond = endAtSecond,
                 pvpEnabled = pvpEnabled,
+                respawnEnabled = respawnEnabled,
+                guardiansEnabled = guardiansEnabled,
                 wallsLocked = wallsLocked,
                 centerLocked = centerLocked,
                 breakWallsOnStart = breakWallsOnStart,

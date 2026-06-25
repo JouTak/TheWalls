@@ -12,6 +12,8 @@ import org.bukkit.entity.Entity
 import org.bukkit.entity.Illusioner
 import org.bukkit.entity.Player
 import org.bukkit.persistence.PersistentDataType
+import org.bukkit.potion.PotionEffect
+import org.bukkit.potion.PotionEffectType
 import org.bukkit.util.Vector
 import ru.joutak.minigames.MiniGamesAPI
 import ru.joutak.minigames.domain.GameInstance
@@ -223,7 +225,10 @@ class TheWallsGame(
         return loc
     }
 
-    fun isRespawnEnabled(team: TheWallsTeam): Boolean = respawnEnabled.getOrElse(team.index) { false }
+    fun isRespawnEnabled(team: TheWallsTeam): Boolean {
+        if (!(getCurrentPhase()?.respawnEnabled ?: true)) return false
+        return respawnEnabled.getOrElse(team.index) { false }
+    }
 
     fun getGuardianLives(team: TheWallsTeam): Int = guardianLivesLeft.getOrElse(team.index) { 0 }
 
@@ -243,6 +248,10 @@ class TheWallsGame(
         state = GameState.COUNTDOWN
 
         preparePlayersForMatch()
+        // Run the ore world-scan synchronously here, right after teleporting players,
+        // so the server freeze is buried in the expected chunk-loading stutter.
+        // By the time the countdown ends, initOresIfNeeded() in beginRunning() is a no-op.
+        initOresIfNeeded()
         startCountdown()
     }
 
@@ -332,6 +341,7 @@ class TheWallsGame(
                 val useSpectator = TheWallsSettings.respawnSpectatorMode && delay > 0
                 if (!useSpectator) {
                     clearSpectator(player)
+                    applyRespawnInvulnerability(player)
                     // If this was a last-chance respawn, consume it immediately.
                     if (!isRespawnEnabled(team)) {
                         lastChanceRespawn.remove(playerId)
@@ -379,6 +389,7 @@ class TheWallsGame(
             player.foodLevel = 20
             player.saturation = 20f
             player.fireTicks = 0
+            applyRespawnInvulnerability(player)
 
             player.sendMessage(
                 Component.text("Вы возродились!", NamedTextColor.GREEN)
@@ -511,13 +522,37 @@ class TheWallsGame(
     }
 
 
+    private fun applyRespawnInvulnerability(player: Player) {
+        val seconds = TheWallsSettings.respawnInvulnerabilitySeconds.coerceAtLeast(0)
+        if (seconds <= 0) return
+
+        val ticks = seconds * 20
+        try {
+            player.noDamageTicks = ticks
+        } catch (_: Throwable) {
+        }
+        try {
+            player.addPotionEffect(
+                PotionEffect(PotionEffectType.RESISTANCE, ticks, 4, false, false, true)
+            )
+        } catch (_: Throwable) {
+        }
+        try {
+            player.sendActionBar(
+                Component.text("Неуязвимость ${seconds}с", NamedTextColor.AQUA)
+            )
+        } catch (_: Throwable) {
+        }
+    }
+
     private fun grantLastChanceForTeam(team: TheWallsTeam) {
         for ((uuid, t) in teamByPlayer) {
             if (t != team) continue
             if (eliminated.contains(uuid)) continue
+            // Only players who are currently dead (waiting for respawn) get a last-chance respawn.
+            // Alive players simply continue living but won't respawn after the next death.
+            if (!spectators.contains(uuid)) continue
 
-            // Grant "last chance" to everyone in the team who is still in the match.
-            // If someone is currently waiting for respawn, we keep the timer - it will be allowed once.
             if (!lastChanceRespawn.add(uuid)) continue
 
             val p = Bukkit.getPlayer(uuid) ?: continue
@@ -757,6 +792,20 @@ class TheWallsGame(
         teamByPlayer.keys.mapNotNull { Bukkit.getPlayer(it) }.forEach { p ->
             p.closeInventory()
             p.inventory.clear()
+            try {
+                p.inventory.setArmorContents(arrayOfNulls(4))
+            } catch (_: Throwable) {
+            }
+            try {
+                p.activePotionEffects.toList().forEach { eff -> p.removePotionEffect(eff.type) }
+            } catch (_: Throwable) {
+            }
+            try {
+                p.exp = 0f
+                p.level = 0
+                p.totalExperience = 0
+            } catch (_: Throwable) {
+            }
             val maxHealth = p.getAttribute(Attribute.MAX_HEALTH)?.value ?: 20.0
             p.health = maxHealth
             p.foodLevel = 20
@@ -868,10 +917,6 @@ class TheWallsGame(
         matchScoreboard = TheWallsMatchScoreboard(this).also { sb ->
             teamByPlayer.keys.mapNotNull { Bukkit.getPlayer(it) }.forEach { sb.addPlayer(it) }
             adminSpectators.mapNotNull { Bukkit.getPlayer(it) }.forEach { sb.addPlayer(it) }
-        }
-
-        if (TheWallsSettings.guardiansEnabled) {
-            spawnAllGuardians()
         }
 
         initOresIfNeeded()
@@ -1008,7 +1053,9 @@ class TheWallsGame(
                 name = "Подготовка",
                 durationSeconds = buildSeconds.toLong(),
                 endAtSecond = null,
-                pvpEnabled = TheWallsSettings.pvpInBuildEnabled,
+                pvpEnabled = false,
+                respawnEnabled = true,
+                guardiansEnabled = false,
                 wallsLocked = true,
                 centerLocked = true,
                 breakWallsOnStart = false,
@@ -1025,6 +1072,8 @@ class TheWallsGame(
                 durationSeconds = openSeconds.toLong(),
                 endAtSecond = null,
                 pvpEnabled = true,
+                respawnEnabled = true,
+                guardiansEnabled = true,
                 wallsLocked = false,
                 centerLocked = false,
                 breakWallsOnStart = true,
@@ -1040,18 +1089,33 @@ class TheWallsGame(
 
 
     private fun tickWorldBorderShrink(phase: GamePhase?) {
-        if (!borderConfigured) return
-        if (phase == null) return
-        if (!phase.borderShrink) return
-        if (phase.borderShrinkSpeed <= 0.0) return
+        // Smooth shrink is scheduled once per phase in applyPhaseBorderShrink().
+        // This method is kept as a no-op for backward-compat and future hooks.
+    }
 
+    private fun applyPhaseBorderShrink(phase: GamePhase) {
+        if (!borderConfigured) return
         val world = Bukkit.getWorld(worldName) ?: return
         val border = world.worldBorder
-        if (border.size <= phase.borderFinalSize) return
 
-        val newSize = maxOf(phase.borderFinalSize, border.size - phase.borderShrinkSpeed)
-        if (newSize < border.size) {
-            border.size = newSize
+        if (!phase.borderShrink || phase.borderShrinkSpeed <= 0.0) {
+            // Do NOT freeze the border here. Freezing via setSize(size, 0L) on every
+            // non-shrink phase produced visible "stutters" when phases alternated.
+            // The previous shrink animation will continue toward its scheduled target.
+            return
+        }
+
+        val currentSize = border.size
+        val finalSize = phase.borderFinalSize.coerceAtLeast(1.0)
+        if (currentSize <= finalSize) return
+
+        // borderShrinkSpeed is interpreted as "blocks per second" of diameter shrink.
+        val diff = currentSize - finalSize
+        val secondsExact = diff / phase.borderShrinkSpeed
+        val seconds = kotlin.math.ceil(secondsExact).toLong().coerceAtLeast(1L)
+        try {
+            border.setSize(finalSize, seconds)
+        } catch (_: Throwable) {
         }
     }
 
@@ -1122,6 +1186,12 @@ class TheWallsGame(
         if (phase.breakWallsOnStart) {
             startWallBreakTask()
         }
+
+        if (phase.guardiansEnabled && TheWallsSettings.guardiansEnabled) {
+            spawnAllGuardians()
+        }
+
+        applyPhaseBorderShrink(phase)
 
         if (!announce) return
 
@@ -1615,10 +1685,19 @@ class TheWallsGame(
 
             players.forEachIndexed { slot, player ->
                 val spawn = podium.spawnLocation(ceremonyWorld, slot)
+                // Clear spectator target first so the player isn't locked to another entity's
+                // viewpoint; otherwise cross-world teleport may be silently ignored.
+                try { player.spectatorTarget = null } catch (_: Throwable) {}
                 player.gameMode = GameMode.ADVENTURE
                 player.fallDistance = 0f
                 player.teleport(spawn)
                 CeremonyController.setPlayerBounds(player, ceremonyName, bounds, spawn)
+                // Re-enforce ADVENTURE a tick later: Multiverse can override gameMode on world entry.
+                Bukkit.getScheduler().runTaskLater(TheWallsPlugin.instance, Runnable {
+                    if (player.isOnline && player.world.name == ceremonyName) {
+                        player.gameMode = GameMode.ADVENTURE
+                    }
+                }, 2L)
             }
         }
 
@@ -1764,7 +1843,7 @@ class TheWallsGame(
                 val block = w.getBlockAt(pos.x, pos.y, pos.z)
                 val type = block.type
                 if (!type.isAir && !protected.contains(type) && !keepBlocks.contains(type)) {
-                    block.type = Material.AIR
+                    block.setBlockData(Bukkit.createBlockData(Material.AIR), false)
                 }
                 wallBreakDoneBlocks++
                 processed++
@@ -1785,10 +1864,40 @@ class TheWallsGame(
 
             if (cursor.isDone()) {
                 cancelTask("walls")
+                triggerWaterFlowAroundWalls(w, regions)
             }
         }, 1L, 1L).taskId
 
         tasks["walls"] = taskId
+    }
+
+    private fun triggerWaterFlowAroundWalls(world: org.bukkit.World, regions: List<TheWallsSettings.CuboidRegion>) {
+        val wMinY = world.minHeight
+        val wMaxY = world.maxHeight - 1
+        for (r in regions) {
+            val rMinY = r.minY.coerceIn(wMinY, wMaxY)
+            val rMaxY = r.maxY.coerceIn(wMinY, wMaxY)
+            for (x in (r.minX - 1)..(r.maxX + 1)) {
+                for (y in (rMinY - 1).coerceAtLeast(wMinY)..(rMaxY + 1).coerceAtMost(wMaxY)) {
+                    for (z in (r.minZ - 1)..(r.maxZ + 1)) {
+                        if (x in r.minX..r.maxX && y in rMinY..rMaxY && z in r.minZ..r.maxZ) continue
+                        if (!world.isChunkLoaded(x shr 4, z shr 4)) continue
+                        if (world.getBlockAt(x, y, z).type != org.bukkit.Material.WATER) continue
+                        // Found water adjacent to the wall. Nudge the nearest inside-wall block
+                        // using CAVE_AIR→AIR: visually identical to AIR but a different block
+                        // state, so Minecraft won't skip the neighborChanged notification.
+                        val nx = x.coerceIn(r.minX, r.maxX)
+                        val ny = y.coerceIn(rMinY, rMaxY)
+                        val nz = z.coerceIn(r.minZ, r.maxZ)
+                        if (!world.isChunkLoaded(nx shr 4, nz shr 4)) continue
+                        val inner = world.getBlockAt(nx, ny, nz)
+                        if (!inner.type.isAir) continue
+                        inner.setType(org.bukkit.Material.CAVE_AIR, false)
+                        inner.setType(org.bukkit.Material.AIR, true)
+                    }
+                }
+            }
+        }
     }
 
     private data class BlockPos(val x: Int, val y: Int, val z: Int)
@@ -1859,8 +1968,13 @@ class TheWallsGame(
     private fun spawnAllGuardians() {
         for (team in TheWallsTeam.entries) {
             if (guardianLivesLeft.getOrElse(team.index) { 0 } <= 0) continue
+            if (!hasAnyPlayersInTeam(team)) continue
             spawnGuardian(team)
         }
+    }
+
+    private fun hasAnyPlayersInTeam(team: TheWallsTeam): Boolean {
+        return teamByPlayer.values.any { it == team }
     }
 
     private fun spawnGuardian(team: TheWallsTeam) {
@@ -1877,6 +1991,7 @@ class TheWallsGame(
         }
 
         val nameRaw = ChatColor.translateAlternateColorCodes('&', TheWallsSettings.guardianName)
+        val max = TheWallsSettings.guardianMaxHealth
         val entity = w.spawn(loc, Illusioner::class.java) { e ->
             e.persistentDataContainer.set(TheWallsKeys.guardianTeamKey, PersistentDataType.STRING, team.name)
             e.customName = "${team.color}$nameRaw"
@@ -1885,15 +2000,37 @@ class TheWallsGame(
             e.isPersistent = true
             e.canPickupItems = false
 
-            val max = TheWallsSettings.guardianMaxHealth
-            e.getAttribute(Attribute.MAX_HEALTH)?.baseValue = max
             try {
-                e.health = max
-            } catch (_: Exception) {
+                e.setAI(true)
+            } catch (_: Throwable) {
             }
+            try {
+                e.isInvulnerable = false
+            } catch (_: Throwable) {
+            }
+
+            e.getAttribute(Attribute.MAX_HEALTH)?.baseValue = max
         }
 
-        guardianEntityIds[team.index] = entity.uniqueId
+        // Force HP to max after spawn (in some server versions vanilla resets health post-spawn).
+        // Also apply a permanent glowing effect so guardians are visible through walls.
+        val entityId = entity.uniqueId
+        Bukkit.getScheduler().runTask(TheWallsPlugin.instance, Runnable {
+            val live = Bukkit.getEntity(entityId) as? org.bukkit.entity.LivingEntity ?: return@Runnable
+            try {
+                live.getAttribute(Attribute.MAX_HEALTH)?.baseValue = max
+                live.health = max
+            } catch (_: Throwable) {
+            }
+            try {
+                live.addPotionEffect(
+                    PotionEffect(PotionEffectType.GLOWING, Int.MAX_VALUE, 0, false, false, false)
+                )
+            } catch (_: Throwable) {
+            }
+        })
+
+        guardianEntityIds[team.index] = entityId
     }
 
     fun handleGuardianKilled(team: TheWallsTeam, killer: Player?) {
@@ -1930,6 +2067,7 @@ class TheWallsGame(
             val taskId = Bukkit.getScheduler().runTaskLater(TheWallsPlugin.instance, Runnable {
                 if (state != GameState.RUNNING) return@Runnable
                 if (guardianLivesLeft.getOrElse(team.index) { 0 } <= 0) return@Runnable
+                if (!hasAnyPlayersInTeam(team)) return@Runnable
                 spawnGuardian(team)
             }, (respawnSeconds.coerceAtLeast(0) * 20L)).taskId
             tasks[key] = taskId

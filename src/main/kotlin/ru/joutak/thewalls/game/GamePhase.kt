@@ -9,6 +9,8 @@ data class GamePhase(
     val wallsLocked: Boolean,
     val centerLocked: Boolean,
     val breakWallsOnStart: Boolean,
+    val respawnEnabled: Boolean,
+    val guardiansEnabled: Boolean,
 
     // Vanilla world border shrink (same concept as in CreakyWars)
     val borderShrink: Boolean,

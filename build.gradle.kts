@@ -12,14 +12,10 @@ plugins {
 
 repositories {
     mavenCentral()
-    maven("https://repo.papermc.io/repository/maven-public/") {
-        name = "papermc-repo"
-    }
-    maven("https://oss.sonatype.org/content/groups/public/") {
-        name = "sonatype"
-    }
-
+    maven("https://repo.papermc.io/repository/maven-public/") { name = "papermc-repo" }
+    maven("https://oss.sonatype.org/content/groups/public/") { name = "sonatype" }
     maven("https://repo.onarandombox.com/content/groups/public/")
+    maven("https://jitpack.io") { name = "jitpack" }
     maven("https://maven.joutak.ru/snapshots")
 }
 
@@ -27,8 +23,8 @@ dependencies {
     compileOnly(libs.kotlin)
     compileOnly(libs.paper)
 
-    compileOnly("com.onarandombox.multiversecore:multiverse-core:4.3.14")
-    implementation("ru.joutak:minigamesapi:3.3.6-117")
+    compileOnly("org.mvplugins.multiverse.core:multiverse-core:5.7.0")
+    implementation("ru.joutak:minigamesapi:3.6.2-142")
     implementation("org.mariadb.jdbc:mariadb-java-client:3.5.7")
 }
 

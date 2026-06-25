@@ -17,7 +17,6 @@ match:
 
   rules:
     friendly-fire: false
-    pvp-in-build: false
     protected-blocks:
       - BEDROCK
       - BARRIER
@@ -43,6 +42,7 @@ match:
 respawn:
   delay-seconds: 5
   spectator-mode: true
+  invulnerability-seconds: 3
 
 # Ускорение печки/плавильни/смокера
 fast-furnace:

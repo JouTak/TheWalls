@@ -105,7 +105,7 @@ object TheWallsSettings {
     var matchBuildSeconds: Int = 600
         private set
 
-    var matchDifficulty: Difficulty = Difficulty.NORMAL
+    var matchDifficulty: Difficulty = Difficulty.HARD
         private set
 
     var wallBreakBlocksPerTick: Int = 8000
@@ -115,9 +115,6 @@ object TheWallsSettings {
         private set
 
     var friendlyFireEnabled: Boolean = false
-        private set
-
-    var pvpInBuildEnabled: Boolean = false
         private set
 
     var protectedBlocks: Set<Material> = emptySet()
@@ -142,6 +139,9 @@ object TheWallsSettings {
         private set
 
     var respawnSpectatorMode: Boolean = true
+        private set
+
+    var respawnInvulnerabilitySeconds: Int = 3
         private set
 
     var fastFurnaceEnabled: Boolean = true
@@ -174,15 +174,13 @@ object TheWallsSettings {
         cfg.addDefault("lobby.spawn", "0, 65, 0, 0, 0")
         cfg.addDefault("players-per-team", 4)
         cfg.addDefault("match.countdown-seconds", 10)
-        cfg.addDefault("match.duration-seconds", 900)
         cfg.addDefault("match.total-seconds", 900)
         cfg.addDefault("match.build-seconds", 600)
-        cfg.addDefault("match.difficulty", "NORMAL")
+        cfg.addDefault("match.difficulty", "HARD")
         cfg.addDefault("match.walls.blocks-per-tick", 8000)
         cfg.addDefault("match.walls.keep-blocks", emptyList<String>())
 
         cfg.addDefault("match.rules.friendly-fire", false)
-        cfg.addDefault("match.rules.pvp-in-build", false)
         cfg.addDefault(
             "match.rules.protected-blocks",
             listOf(
@@ -205,29 +203,13 @@ object TheWallsSettings {
 
         cfg.addDefault("respawn.delay-seconds", 5)
         cfg.addDefault("respawn.spectator-mode", true)
+        cfg.addDefault("respawn.invulnerability-seconds", 3)
         cfg.addDefault("fast-furnace.enabled", true)
         cfg.addDefault("fast-furnace.speed-multiplier", 3.0)
         cfg.addDefault("ceremony.enabled", false)
         cfg.addDefault("ceremony.template-world", "tw_ceremony")
         cfg.addDefault("ceremony.duration-seconds", 12)
         cfg.addDefault("ceremony.podiums", emptyList<String>())
-
-        // Migration from old configs (left patches)
-
-        var migrated = false
-        if (cfg.contains("furnace-speed.enabled") && !cfg.contains("fast-furnace.enabled")) {
-            cfg.set("fast-furnace.enabled", cfg.getBoolean("furnace-speed.enabled"))
-            migrated = true
-        }
-        if (cfg.contains("furnace-speed.speed-multiplier") && !cfg.contains("fast-furnace.speed-multiplier")) {
-            cfg.set("fast-furnace.speed-multiplier", cfg.getDouble("furnace-speed.speed-multiplier"))
-            migrated = true
-        }
-        if (migrated) {
-            plugin.logger.info("[TheWalls] Migrated config keys: furnace-speed -> fast-furnace")
-        }
-
-
 
         cfg.options().copyDefaults(true)
         plugin.saveConfig()
@@ -240,24 +222,17 @@ object TheWallsSettings {
 
         playersPerTeam = cfg.getInt("players-per-team", 4).coerceAtLeast(1)
         countdownSeconds = cfg.getInt("match.countdown-seconds", 10).coerceAtLeast(0)
-
-        // Backward compatibility: duration-seconds is treated as total-seconds if total-seconds is absent.
-        val total = if (cfg.contains("match.total-seconds")) {
-            cfg.getInt("match.total-seconds", 900)
-        } else {
-            cfg.getInt("match.duration-seconds", 900)
-        }
-        matchTotalSeconds = total.coerceAtLeast(10)
+        matchTotalSeconds = cfg.getInt("match.total-seconds", 900).coerceAtLeast(10)
 
         val defaultBuild = minOf(600, maxOf(0, matchTotalSeconds - 60))
         matchBuildSeconds = cfg.getInt("match.build-seconds", defaultBuild)
             .coerceIn(0, maxOf(0, matchTotalSeconds - 1))
 
         matchDifficulty = try {
-            Difficulty.valueOf(cfg.getString("match.difficulty", "NORMAL")!!.trim().uppercase())
+            Difficulty.valueOf(cfg.getString("match.difficulty", "HARD")!!.trim().uppercase())
         } catch (_: Exception) {
-            plugin.logger.warning("[TheWalls] Unknown match.difficulty in config.yml. Using NORMAL")
-            Difficulty.NORMAL
+            plugin.logger.warning("[TheWalls] Unknown match.difficulty in config.yml. Using HARD")
+            Difficulty.HARD
         }
 
         wallBreakBlocksPerTick = cfg.getInt("match.walls.blocks-per-tick", 8000)
@@ -276,7 +251,6 @@ object TheWallsSettings {
         wallKeepBlocks = keep
 
         friendlyFireEnabled = cfg.getBoolean("match.rules.friendly-fire", false)
-        pvpInBuildEnabled = cfg.getBoolean("match.rules.pvp-in-build", false)
 
         val protectedSet = LinkedHashSet<Material>()
         for (rawName in cfg.getStringList("match.rules.protected-blocks")) {
@@ -303,6 +277,7 @@ object TheWallsSettings {
 
         respawnDelaySeconds = cfg.getInt("respawn.delay-seconds", 5).coerceIn(0, 600)
         respawnSpectatorMode = cfg.getBoolean("respawn.spectator-mode", true)
+        respawnInvulnerabilitySeconds = cfg.getInt("respawn.invulnerability-seconds", 3).coerceIn(0, 60)
 
         fastFurnaceEnabled = cfg.getBoolean("fast-furnace.enabled", true)
         fastFurnaceSpeedMultiplier = cfg.getDouble("fast-furnace.speed-multiplier", 3.0).coerceAtLeast(1.0)
@@ -358,8 +333,7 @@ object TheWallsSettings {
             val boundaryWallsRaw = sec["boundary-walls"] as? List<*> ?: emptyList<Any>()
             val boundaryWalls = boundaryWallsRaw.mapNotNull { parseCuboid(it) }.map { it.normalized() }
 
-            val spectateRaw = sec["spectate-point"] ?: sec["admin-spectate-point"]
-            val adminSpectatePoint = spectateRaw?.let { parseSpawn(it) }
+            val adminSpectatePoint = sec["spectate-point"]?.let { parseSpawn(it) }
 
             val sectorsRaw = sec["team-sectors"] as? Map<*, *> ?: emptyMap<Any, Any>()
             val teamSectors = mutableMapOf<TheWallsTeam, CuboidRegion>()
@@ -372,35 +346,14 @@ object TheWallsSettings {
                     if (r != null) teamSectors[team] = r
                 }
             }
-            // Vanilla world border (optional, per arena)
-            // Supports both the new nested section:
-            //   border: { size: 512, center: "0 80 0" }
-            // and legacy flat keys used by some configs:
-            //   border-size: 512
-            //   border-center: "0 80 0"
             val borderSec = sec["border"] as? Map<*, *>
 
-            val borderSizeRaw = (borderSec?.get("size") ?: sec["border-size"] ?: sec["borderSize"]) as? Number
-            val borderSize = borderSizeRaw?.toDouble()?.takeIf { it > 1.0 }
-
-            val borderCenterRaw = borderSec?.get("center") ?: sec["border-center"] ?: sec["borderCenter"]
-            val borderCenter = borderCenterRaw?.let { parseSpawn(it) } ?: centerPoint
-
-            val borderDamageBufferRaw =
-                (borderSec?.get("damage-buffer") ?: sec["border-damage-buffer"] ?: sec["borderDamageBuffer"]) as? Number
-            val borderDamageBuffer = borderDamageBufferRaw?.toDouble() ?: 0.0
-
-            val borderDamageAmountRaw =
-                (borderSec?.get("damage-amount") ?: sec["border-damage-amount"] ?: sec["borderDamageAmount"]) as? Number
-            val borderDamageAmount = borderDamageAmountRaw?.toDouble() ?: 2.0
-
-            val borderWarningDistanceRaw = (borderSec?.get("warning-distance") ?: sec["border-warning-distance"]
-            ?: sec["borderWarningDistance"]) as? Number
-            val borderWarningDistance = borderWarningDistanceRaw?.toInt() ?: 5
-
-            val borderWarningTimeRaw =
-                (borderSec?.get("warning-time") ?: sec["border-warning-time"] ?: sec["borderWarningTime"]) as? Number
-            val borderWarningTime = borderWarningTimeRaw?.toInt() ?: 10
+            val borderSize = (borderSec?.get("size") as? Number)?.toDouble()?.takeIf { it > 1.0 }
+            val borderCenter = borderSec?.get("center")?.let { parseSpawn(it) } ?: centerPoint
+            val borderDamageBuffer = (borderSec?.get("damage-buffer") as? Number)?.toDouble() ?: 0.0
+            val borderDamageAmount = (borderSec?.get("damage-amount") as? Number)?.toDouble() ?: 2.0
+            val borderWarningDistance = (borderSec?.get("warning-distance") as? Number)?.toInt() ?: 5
+            val borderWarningTime = (borderSec?.get("warning-time") as? Number)?.toInt() ?: 10
 
             arenas += ArenaConfig(
                 id = id,
@@ -537,13 +490,9 @@ object TheWallsSettings {
         val str = raw.toString().trim()
         if (str.isBlank()) return SpawnPoint(0.0, defaultY, 0.0, 0f, 0f)
 
-        // Support ";" separators and list-like formats: "[x, y, z]"
-        val cleaned = str.replace(';', ',')
-        val parts = if (cleaned.contains(',')) {
-            cleaned.split(',')
-        } else {
-            cleaned.split(Regex("\\s+"))
-        }.map { it.trim().trim('[', ']', '(', ')') }.filter { it.isNotBlank() }
+        val parts = str.split(Regex("[,;\\s]+"))
+            .map { it.trim().trim('[', ']', '(', ')') }
+            .filter { it.isNotBlank() }
 
         val x = parts.getOrNull(0)?.toDoubleOrNull() ?: 0.0
         val y = parts.getOrNull(1)?.toDoubleOrNull() ?: defaultY
@@ -635,8 +584,7 @@ object TheWallsSettings {
         val str = raw.toString().trim()
         if (str.isBlank()) return null
 
-        val cleaned = str.replace(';', ',')
-        val parts = cleaned.split(',').map { it.trim() }.filter { it.isNotBlank() }
+        val parts = str.split(Regex("[,;\\s]+")).map { it.trim() }.filter { it.isNotBlank() }
         if (parts.size < 5) return null
 
         val minX = parts.getOrNull(0)?.toIntOrNull() ?: return null
@@ -672,8 +620,8 @@ object TheWallsSettings {
         val str = raw.toString().trim()
         if (str.isBlank()) return null
 
-        val cleaned = str.replace(';', ',')
-        val parts = cleaned.split(',').map { it.trim() }.filter { it.isNotBlank() }
+        // Accept any mix of commas, semicolons and whitespace as separators.
+        val parts = str.split(Regex("[,;\\s]+")).map { it.trim() }.filter { it.isNotBlank() }
         if (parts.size < 6) return null
 
         val x1 = parts.getOrNull(0)?.toIntOrNull() ?: return null

@@ -9,6 +9,7 @@ import org.bukkit.entity.Player
 import org.bukkit.event.player.PlayerTeleportEvent
 import org.bukkit.inventory.ItemStack
 import org.bukkit.potion.PotionEffect
+import ru.joutak.minigames.MiniGamesAPI
 import ru.joutak.minigames.managers.MatchmakingManager
 import ru.joutak.thewalls.TheWallsPlugin
 import ru.joutak.thewalls.ceremony.CeremonyController
@@ -146,6 +147,7 @@ object AdminSpectateManager {
 
         // Match UI for admin spectator (scoreboard + bossbar).
         runCatching { game.addAdminSpectator(player) }
+        runCatching { MiniGamesAPI.allowVoiceSpectator(player, game.instance) }
 
         // Ensure admin is not stuck in queue / ready state.
         runCatching { MatchmakingManager.removePlayer(player) }
@@ -178,7 +180,10 @@ object AdminSpectateManager {
         if (session != null) {
             runCatching {
                 val g = TheWallsGameManager.getGameByWorld(session.matchWorldName)
-                if (g != null) g.removeAdminSpectator(player)
+                if (g != null) {
+                    g.removeAdminSpectator(player)
+                    MiniGamesAPI.revokeVoiceSpectator(player, g.instance)
+                }
             }
         }
 
